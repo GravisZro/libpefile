@@ -129,6 +129,7 @@ void PE::parse() {
         pe_type_ = OPTIONAL_HEADER_MAGIC_PE;
     } else if (optional_header_32_.Magic == OPTIONAL_HEADER_MAGIC_PE_PLUS) {
         pe_type_ = OPTIONAL_HEADER_MAGIC_PE_PLUS;
+        is_pe32_plus_ = true;
         optional_header_64_ = read_packed<OptionalHeader64>(data_, optional_header_offset);
     } else {
         add_warning("Invalid type in Optional Header: 0x" +
@@ -267,17 +268,10 @@ const SectionHeader* PE::find_section_for_offset(std::uint32_t offset) const {
 }
 
 std::uint32_t PE::get_offset_from_rva(std::uint32_t rva) const {
-    auto section_alignment = is_pe32_plus() ?
-        optional_header_64_.SectionAlignment : optional_header_32_.SectionAlignment;
-    auto file_alignment = is_pe32_plus() ?
-        optional_header_64_.FileAlignment : optional_header_32_.FileAlignment;
-
     for (auto& s : sections_) {
-        auto adj_va = adjust_section_alignment(s.VirtualAddress, section_alignment, file_alignment);
-        auto adj_ptr = s.PointerToRawData & ~0x1FFu;
-
-        if (adj_va <= rva && rva < adj_va + s.SizeOfRawData) {
-            return adj_ptr + (rva - adj_va);
+        if (s.VirtualAddress <= rva &&
+            rva < s.VirtualAddress + std::max(s.SizeOfRawData, s.VirtualSize)) {
+            return s.PointerToRawData + (rva - s.VirtualAddress);
         }
     }
     return rva;
@@ -345,10 +339,10 @@ std::optional<std::reference_wrapper<const SectionHeader>> PE::get_section_by_of
 
 std::string PE::get_string_at_rva(std::uint32_t rva, std::size_t max_length) const {
     std::string result;
-    for (std::size_t i = 0; i < max_length; i++) {
-        auto offset = get_offset_from_rva(rva + static_cast<std::uint32_t>(i));
-        if (offset >= data_size_) break;
-        char c = static_cast<char>(data_[offset]);
+    auto base_offset = get_offset_from_rva(rva);
+    if (base_offset >= data_size_) return result;
+    for (std::size_t i = 0; i < max_length && base_offset + i < data_size_; i++) {
+        char c = static_cast<char>(data_[base_offset + i]);
         if (c == '\0') break;
         result += c;
     }
@@ -399,8 +393,8 @@ std::span<const std::uint8_t> PE::get_overlay() const {
     if (sections_.empty()) return {};
     std::uint32_t max_end = 0;
     for (auto& s : sections_) {
-        auto end = s.PointerToRawData + s.SizeOfRawData;
-        if (end > max_end) max_end = end;
+        auto end = static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
+        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<std::uint32_t>(end);
     }
     if (max_end >= data_size_) return {};
     return std::span<const std::uint8_t>(data_.data() + max_end, data_size_ - max_end);
@@ -410,8 +404,8 @@ std::optional<std::uint32_t> PE::get_overlay_data_start_offset() const {
     if (sections_.empty()) return std::nullopt;
     std::uint32_t max_end = 0;
     for (auto& s : sections_) {
-        auto end = s.PointerToRawData + s.SizeOfRawData;
-        if (end > max_end) max_end = end;
+        auto end = static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
+        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<std::uint32_t>(end);
     }
     if (max_end >= data_size_) return std::nullopt;
     return max_end;
@@ -423,8 +417,8 @@ std::vector<std::uint8_t> PE::trim() const {
     }
     std::uint32_t max_end = 0;
     for (auto& s : sections_) {
-        auto end = s.PointerToRawData + s.SizeOfRawData;
-        if (end > max_end) max_end = end;
+        auto end = static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
+        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<std::uint32_t>(end);
     }
     return {data_.begin(), data_.begin() + std::min(max_end, static_cast<std::uint32_t>(data_size_))};
 }
@@ -466,9 +460,15 @@ std::uint32_t PE::generate_checksum() const {
     std::size_t size = data_size_;
     auto ptr = data_.data();
 
+    // The checksum field itself must be treated as zero during computation.
+    // It sits at NT headers offset + 24 (sig+COFF) + 64 (within optional header).
+    auto checksum_offset = static_cast<std::size_t>(dos_header_.e_lfanew) + 88;
+    auto checksum_dword_idx = checksum_offset / 4;
+
     for (std::size_t i = 0; i < size / 4; i++) {
         std::uint32_t dword_val;
         std::memcpy(&dword_val, ptr + i * 4, 4);
+        if (i == checksum_dword_idx) dword_val = 0;
         checksum += dword_val;
         if (checksum > 0xFFFFFFFF) {
             checksum = (checksum & 0xFFFFFFFF) + (checksum >> 32);
@@ -690,10 +690,11 @@ std::vector<ImportDescData> PE::parse_import_directory(std::uint32_t rva, std::u
 
         auto file_offset = get_offset_from_rva(rva);
         std::uint32_t max_len = static_cast<std::uint32_t>(data_size_) - file_offset;
-        if (rva > import_desc.OriginalFirstThunk || rva > import_desc.FirstThunk) {
-            max_len = std::max(
-                rva - import_desc.OriginalFirstThunk,
-                rva - import_desc.FirstThunk);
+        if (import_desc.OriginalFirstThunk != 0 && rva > import_desc.OriginalFirstThunk) {
+            max_len = std::max(max_len, rva - import_desc.OriginalFirstThunk);
+        }
+        if (import_desc.FirstThunk != 0 && rva > import_desc.FirstThunk) {
+            max_len = std::max(max_len, rva - import_desc.FirstThunk);
         }
 
         std::vector<ImportData> import_data;
@@ -802,7 +803,7 @@ std::vector<ImportData> PE::parse_imports(
         auto thunk_offset = static_cast<std::uint32_t>(get_offset_from_rva(current_rva));
         auto thunk_rva = current_rva;
 
-        std::uint64_t imp_address = first_thunk +
+        std::uint64_t imp_address = current_rva +
             (is_pe32_plus() ? optional_header_64_.ImageBase : optional_header_32_.ImageBase);
 
         ImportData imp;
@@ -842,6 +843,7 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
     auto addr_of_name_ordinals = get_offset_from_rva(export_dir.AddressOfNameOrdinals);
     auto addr_of_functions = get_offset_from_rva(export_dir.AddressOfFunctions);
 
+
     std::vector<ExportData> exports;
 
     for (std::uint32_t i = 0; i < std::min(export_dir.NumberOfNames,
@@ -880,6 +882,7 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
         exp.is_forwarder = !forwarder.empty();
         exports.push_back(exp);
     }
+
 
     if (exports.empty()) return std::nullopt;
 
@@ -1368,10 +1371,11 @@ std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t 
 
         auto file_offset = get_offset_from_rva(rva);
         std::uint32_t max_len = static_cast<std::uint32_t>(data_size_) - file_offset;
-        if (rva > int_rva || rva > iat_rva) {
-            max_len = std::max(
-                rva - int_rva,
-                rva - iat_rva);
+        if (int_rva != 0 && rva > int_rva) {
+            max_len = std::max(max_len, rva - int_rva);
+        }
+        if (iat_rva != 0 && rva > iat_rva) {
+            max_len = std::max(max_len, rva - iat_rva);
         }
 
         std::vector<ImportData> import_data;
@@ -1383,14 +1387,12 @@ std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t 
                 " (" + e.what() + ")");
         }
 
-        if (error_count > 5) {
-            add_warning("Too many errors parsing the Delay import directory. "
-                "Invalid import data at RVA: 0x" + std::to_string(rva));
-            break;
-        }
-
         if (import_data.empty()) {
-            error_count++;
+            if (++error_count > 5) {
+                add_warning("Too many errors parsing the Delay import directory. "
+                    "Invalid import data at RVA: 0x" + std::to_string(rva));
+                break;
+            }
             continue;
         }
 

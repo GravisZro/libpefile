@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string>
 #include <span>
+#include <vector>
 
 namespace pefile {
 
@@ -41,7 +42,7 @@ public:
         pad_data[0] = padding;
         update(pad_data);
 
-        std::memcpy(buffer_, bits, 8);
+        std::memcpy(&buffer_[14], bits, 8);
         transform();
 
         std::array<std::uint8_t, 16> result;

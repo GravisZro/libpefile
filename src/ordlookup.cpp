@@ -1,10 +1,20 @@
 #include "ordlookup.hpp"
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 namespace pefile::ordlookup {
 
 namespace {
+
+  bool iequals(std::string_view a, std::string_view b) {
+      if (a.size() != b.size()) return false;
+      for (std::size_t i = 0; i < a.size(); i++) {
+          if (std::tolower(static_cast<unsigned char>(a[i])) !=
+              std::tolower(static_cast<unsigned char>(b[i]))) return false;
+      }
+      return true;
+  }
 
   const OrdinalMap oleaut32_ords = {
       {2, "SysAllocString"},
@@ -344,7 +354,7 @@ const OrdinalMap& lookup_table(std::string_view dll_name) {
         {"wsock32.dll", wsock32_ords},
     };
     for (auto& [name, table] : tables) {
-        if (name == dll_name) return table;
+        if (iequals(name, dll_name)) return table;
     }
     return empty;
 }
@@ -357,7 +367,7 @@ const OrdinalMap& imphash_lookup_table(std::string_view dll_name) {
         {"wsock32.dll", imphash_ws2_32_ords},
     };
     for (auto& [name, table] : tables) {
-        if (name == dll_name) return table;
+        if (iequals(name, dll_name)) return table;
     }
     return empty;
 }

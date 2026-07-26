@@ -143,7 +143,7 @@ private:
     const SectionHeader* find_section_for_offset(std::uint32_t offset) const;
     std::span<const std::uint8_t> get_data_span(std::uint32_t rva, std::uint32_t length) const;
 
-    mutable std::vector<std::uint8_t> data_;
+    std::vector<std::uint8_t> data_;
     std::size_t data_size_ = 0;
 
     DosHeader dos_header_{};

@@ -22,9 +22,11 @@ private:
 template <typename T>
 T read_packed(std::span<const std::uint8_t> data, std::size_t offset = 0) {
     T val{};
-    if (offset + sizeof(T) <= data.size()) {
-        std::memcpy(&val, data.data() + offset, sizeof(T));
+    if (offset + sizeof(T) > data.size()) {
+        throw PEFormatError("read_packed: out of bounds read (need " +
+            std::to_string(offset + sizeof(T)) + ", have " + std::to_string(data.size()) + ")");
     }
+    std::memcpy(&val, data.data() + offset, sizeof(T));
     return val;
 }
 
