@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <format>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -10,6 +11,12 @@
 
 namespace pefile
 {
+  using std::int64_t;
+  using std::uint8_t;
+  using std::uint16_t;
+  using std::uint32_t;
+  using std::uint64_t;
+  using std::size_t;
 
   constexpr uint32_t MAX_STRING_LENGTH = 0x100000;
   constexpr uint32_t MAX_IMPORT_SYMBOLS = 0x2000;
@@ -411,14 +418,14 @@ namespace pefile
       val /= 1024.0;
       unit++;
     }
-    char buf[64];
+    std::string buf;
     if (unit == 0)
     {
-      std::snprintf(buf, sizeof(buf), "%llu %s", static_cast<unsigned long long>(value), units[unit]);
+      buf = std::format("{} {}", static_cast<unsigned long long>(value), units[unit]);
     }
     else
     {
-      std::snprintf(buf, sizeof(buf), "%.1f %s", val, units[unit]);
+      buf = std::format("{:.1f} {}", val, units[unit]);
     }
     return buf;
   }

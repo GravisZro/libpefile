@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <format>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -200,9 +201,7 @@ std::string SignatureDatabase::generate_ep_signature(const PE& pe, const std::st
     ss << "signature = ";
     for (size_t i = 0; i < data.size(); i++) {
         if (i > 0) ss << " ";
-        char buf[4];
-        std::snprintf(buf, sizeof(buf), "%02X", data[i]);
-        ss << buf;
+        ss << std::format("{:02X}", data[i]);
     }
     ss << "\n";
     ss << "ep_only = True\n";
@@ -221,9 +220,7 @@ std::vector<std::string> SignatureDatabase::generate_section_signatures(
         ss << "signature = ";
         for (size_t i = 0; i < data.size(); i++) {
             if (i > 0) ss << " ";
-            char buf[4];
-            std::snprintf(buf, sizeof(buf), "%02X", data[i]);
-            ss << buf;
+            ss << std::format("{:02X}", data[i]);
         }
         ss << "\n";
         ss << "ep_only = False\n";

@@ -8,7 +8,7 @@
 #include <algorithm>
 
 #include "pefile.hpp"
-#include "md5.hpp"
+#include "hashing.hpp"
 #include "pe_builder.hpp"
 
 using namespace pefile;
@@ -663,23 +663,21 @@ static void test_driver_detection() {
 }
 
 // ============================================================================
-// MD5 tests
+// MD5 tests (use hashing.hpp which uses libcrypto or md5sum fallback)
 // ============================================================================
 static void test_md5() {
     run_test("MD5 of empty string", []() {
-        MD5 md5;
-        md5.update(std::string(""));
-        ASSERT_EQ(md5.hexdigest(), "d41d8cd98f00b204e9800998ecf8427e");
+        ASSERT_EQ(pefile::hash_helpers::md5_hex(std::string("")),
+                  "d41d8cd98f00b204e9800998ecf8427e");
     });
     run_test("MD5 of 'abc'", []() {
-        MD5 md5;
-        md5.update(std::string("abc"));
-        ASSERT_EQ(md5.hexdigest(), "900150983cd24fb0d6963f7d28e17f72");
+        ASSERT_EQ(pefile::hash_helpers::md5_hex(std::string("abc")),
+                  "900150983cd24fb0d6963f7d28e17f72");
     });
     run_test("MD5 of 'The quick brown fox'", []() {
-        MD5 md5;
-        md5.update(std::string("The quick brown fox jumps over the lazy dog"));
-        ASSERT_EQ(md5.hexdigest(), "9e107d9d372bb6826bd81d3542a419d6");
+        ASSERT_EQ(pefile::hash_helpers::md5_hex(std::string(
+                      "The quick brown fox jumps over the lazy dog")),
+                  "9e107d9d372bb6826bd81d3542a419d6");
     });
 }
 

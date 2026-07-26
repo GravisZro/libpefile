@@ -1,5 +1,6 @@
 #include "pe_structure.hpp"
 #include <cstring>
+#include <format>
 #include <stdexcept>
 
 namespace pefile {
@@ -191,20 +192,21 @@ std::vector<std::string> Structure::dump(int indentation) const {
                 fit->format.back() == 'i' || fit->format.back() == 'l');
         }
 
-        char buf[256];
+        std::string buf;
         if (fit->format.back() == 's') {
             std::string str(reinterpret_cast<const char*>(data_.data() + it->second),
                            std::min(size, data_.size() - it->second));
-            std::snprintf(buf, sizeof(buf), "%s%-30s : (String) %s",
-                         indent.c_str(), field.name.c_str(), str.c_str());
+            buf = std::format("{:<30} : (String) {}",
+                             std::format("{}{:<30}", indent, field.name), str);
         } else if (fit->format == "x") {
-            std::snprintf(buf, sizeof(buf), "%s%-30s : (Padding) 0x%X",
-                         indent.c_str(), field.name.c_str(), static_cast<unsigned>(value));
+            buf = std::format("{:<30} : (Padding) 0x{:X}",
+                             std::format("{}{:<30}", indent, field.name),
+                             static_cast<unsigned>(value));
         } else {
-            std::snprintf(buf, sizeof(buf), "%s%-30s : 0x%llX (%lld)",
-                         indent.c_str(), field.name.c_str(),
-                         static_cast<unsigned long long>(value),
-                         static_cast<long long>(value));
+            buf = std::format("{:<30} : 0x{:X} ({})",
+                             std::format("{}{:<30}", indent, field.name),
+                             static_cast<unsigned long long>(value),
+                             static_cast<long long>(value));
         }
         result.push_back(buf);
     }

@@ -1,16 +1,18 @@
 #include "pefile.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <numeric>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <functional>
 
 #include "ordlookup.hpp"
-#include "md5.hpp"
+#include "hashing.hpp"
 
 namespace pefile {
 
@@ -361,7 +363,98 @@ std::string PE::get_string_u_at_rva(uint32_t rva, size_t max_length) const {
     return result;
 }
 
-std::vector<uint8_t> PE::get_memory_mapped_image(uint32_t max_virtual_address) const {
+void PE::relocate_image(uint64_t new_image_base) {
+    uint64_t current_imagebase = is_pe32_plus() ?
+        m_optional_header_64.ImageBase : m_optional_header_32.ImageBase;
+    int64_t relocation_difference =
+        static_cast<int64_t>(new_image_base) - static_cast<int64_t>(current_imagebase);
+
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BASERELOC) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)].Size) {
+        if (m_relocations.empty()) {
+            auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)];
+            m_relocations = parse_relocations_directory(dir.VirtualAddress, dir.Size);
+        }
+        if (m_relocations.empty()) {
+            add_warning("Relocating image but PE does not have a parseable DIRECTORY_ENTRY_BASERELOC");
+        } else {
+            constexpr uint32_t IMAGE_REL_BASED_ABSOLUTE = 0;
+            constexpr uint32_t IMAGE_REL_BASED_HIGH = 1;
+            constexpr uint32_t IMAGE_REL_BASED_LOW = 2;
+            constexpr uint32_t IMAGE_REL_BASED_HIGHLOW = 3;
+            constexpr uint32_t IMAGE_REL_BASED_HIGHADJ = 4;
+            constexpr uint32_t IMAGE_REL_BASED_DIR64 = 10;
+
+            for (auto& reloc : m_relocations) {
+                size_t entry_idx = 0;
+                while (entry_idx < reloc.entries.size()) {
+                    auto& entry = reloc.entries[entry_idx];
+                    entry_idx++;
+
+                    if (entry.type == IMAGE_REL_BASED_ABSOLUTE) {
+                        continue;
+                    } else if (entry.type == IMAGE_REL_BASED_HIGH) {
+                        uint16_t v = get_word_at_rva(entry.rva);
+                        v = static_cast<uint16_t>(
+                            (static_cast<uint32_t>(v) +
+                             (static_cast<uint32_t>(relocation_difference) >> 16)) & 0xFFFF);
+                        set_word_at_rva(entry.rva, v);
+                    } else if (entry.type == IMAGE_REL_BASED_LOW) {
+                        uint16_t v = get_word_at_rva(entry.rva);
+                        v = static_cast<uint16_t>(
+                            (static_cast<uint32_t>(v) +
+                             static_cast<uint32_t>(relocation_difference & 0xFFFF)) & 0xFFFF);
+                        set_word_at_rva(entry.rva, v);
+                    } else if (entry.type == IMAGE_REL_BASED_HIGHLOW) {
+                        uint32_t v = get_dword_at_rva(entry.rva);
+                        v = static_cast<uint32_t>(
+                            static_cast<int64_t>(v) + relocation_difference);
+                        set_dword_at_rva(entry.rva, v);
+                    } else if (entry.type == IMAGE_REL_BASED_HIGHADJ) {
+                        if (entry_idx >= reloc.entries.size()) break;
+                        const auto& next = reloc.entries[entry_idx];
+                        entry_idx++;
+                        uint16_t v = get_word_at_rva(entry.rva);
+                        uint32_t result = ((static_cast<uint32_t>(v) << 16) +
+                                           next.rva + static_cast<uint32_t>(relocation_difference)) & 0xFFFF0000;
+                        set_word_at_rva(entry.rva, static_cast<uint16_t>(result >> 16));
+                    } else if (entry.type == IMAGE_REL_BASED_DIR64) {
+                        uint64_t v = get_qword_at_rva(entry.rva);
+                        v = static_cast<uint64_t>(static_cast<int64_t>(v) + relocation_difference);
+                        set_qword_at_rva(entry.rva, v);
+                    }
+                }
+            }
+        }
+    }
+
+    if (is_pe32_plus()) {
+        m_optional_header_64.ImageBase = new_image_base;
+    } else {
+        m_optional_header_32.ImageBase = static_cast<uint32_t>(new_image_base);
+    }
+
+    for (auto& import_desc : m_imports) {
+        for (auto& imp : import_desc.imports) {
+            imp.address = static_cast<uint64_t>(
+                static_cast<int64_t>(imp.address) + relocation_difference);
+        }
+    }
+
+    if (m_tls_data) {
+        m_tls_data->start_address_of_raw_data = static_cast<uint64_t>(
+            static_cast<int64_t>(m_tls_data->start_address_of_raw_data) + relocation_difference);
+        m_tls_data->end_address_of_raw_data = static_cast<uint64_t>(
+            static_cast<int64_t>(m_tls_data->end_address_of_raw_data) + relocation_difference);
+        m_tls_data->address_of_index = static_cast<uint64_t>(
+            static_cast<int64_t>(m_tls_data->address_of_index) + relocation_difference);
+        m_tls_data->address_of_callbacks = static_cast<uint64_t>(
+            static_cast<int64_t>(m_tls_data->address_of_callbacks) + relocation_difference);
+    }
+}
+
+std::vector<uint8_t> PE::get_memory_mapped_image(uint32_t max_virtual_address,
+                                            std::optional<uint64_t> image_base) const {
     auto size_of_image = is_pe32_plus() ?
         m_optional_header_64.SizeOfImage : m_optional_header_32.SizeOfImage;
     auto image_size = std::min(size_of_image, max_virtual_address);
@@ -380,6 +473,75 @@ std::vector<uint8_t> PE::get_memory_mapped_image(uint32_t max_virtual_address) c
         std::memcpy(mapped.data() + section.VirtualAddress,
                     m_data.data() + section.PointerToRawData,
                     section.SizeOfRawData);
+    }
+
+    if (image_base) {
+        uint64_t current_imagebase = is_pe32_plus() ?
+            m_optional_header_64.ImageBase : m_optional_header_32.ImageBase;
+        int64_t delta = static_cast<int64_t>(*image_base) -
+                        static_cast<int64_t>(current_imagebase);
+
+        if (m_relocations.empty() &&
+            m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BASERELOC) &&
+            m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)].Size) {
+            const_cast<PE*>(this)->m_relocations = parse_relocations_directory(
+                m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)].VirtualAddress,
+                m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)].Size);
+        }
+
+        constexpr uint32_t R_HIGH = 1, R_LOW = 2, R_HIGHLOW = 3,
+                           R_HIGHADJ = 4, R_DIR64 = 10;
+
+        for (auto& reloc : m_relocations) {
+            size_t entry_idx = 0;
+            while (entry_idx < reloc.entries.size()) {
+                auto& entry = reloc.entries[entry_idx];
+                entry_idx++;
+                uint32_t rva = entry.rva;
+                if (rva >= mapped.size()) continue;
+
+                if (entry.type == R_HIGH) {
+                    if (rva + 2 > mapped.size()) continue;
+                    uint16_t v;
+                    std::memcpy(&v, mapped.data() + rva, 2);
+                    v = static_cast<uint16_t>(
+                        (static_cast<uint32_t>(v) +
+                         (static_cast<uint32_t>(delta) >> 16)) & 0xFFFF);
+                    std::memcpy(mapped.data() + rva, &v, 2);
+                } else if (entry.type == R_LOW) {
+                    if (rva + 2 > mapped.size()) continue;
+                    uint16_t v;
+                    std::memcpy(&v, mapped.data() + rva, 2);
+                    v = static_cast<uint16_t>(
+                        (static_cast<uint32_t>(v) +
+                         static_cast<uint32_t>(delta & 0xFFFF)) & 0xFFFF);
+                    std::memcpy(mapped.data() + rva, &v, 2);
+                } else if (entry.type == R_HIGHLOW) {
+                    if (rva + 4 > mapped.size()) continue;
+                    uint32_t v;
+                    std::memcpy(&v, mapped.data() + rva, 4);
+                    v = static_cast<uint32_t>(static_cast<int64_t>(v) + delta);
+                    std::memcpy(mapped.data() + rva, &v, 4);
+                } else if (entry.type == R_HIGHADJ) {
+                    if (entry_idx >= reloc.entries.size()) break;
+                    const auto& next = reloc.entries[entry_idx];
+                    entry_idx++;
+                    if (rva + 2 > mapped.size()) continue;
+                    uint16_t v;
+                    std::memcpy(&v, mapped.data() + rva, 2);
+                    uint32_t highadj = (((static_cast<uint32_t>(v) << 16) +
+                                         next.rva +
+                                         static_cast<uint32_t>(delta)) & 0xFFFF0000) >> 16;
+                    std::memcpy(mapped.data() + rva, &highadj, 2);
+                } else if (entry.type == R_DIR64) {
+                    if (rva + 8 > mapped.size()) continue;
+                    uint64_t v;
+                    std::memcpy(&v, mapped.data() + rva, 8);
+                    v = static_cast<uint64_t>(static_cast<int64_t>(v) + delta);
+                    std::memcpy(mapped.data() + rva, &v, 8);
+                }
+            }
+        }
     }
 
     return mapped;
@@ -589,6 +751,36 @@ bool PE::set_qword_at_offset(uint32_t offset, uint64_t qword) {
         reinterpret_cast<const uint8_t*>(&qword), 8));
 }
 
+bool PE::set_version_string(const std::string& key, const std::string& value) {
+    if (!m_version_info) return false;
+    auto it = m_version_info->entries.find(key);
+    if (it == m_version_info->entries.end()) return false;
+
+    auto& entry = it->second;
+    std::vector<uint8_t> utf16(value.size() * 2 + 2, 0);
+    for (size_t i = 0; i < value.size(); i++) {
+        utf16[i * 2] = static_cast<uint8_t>(value[i]);
+        utf16[i * 2 + 1] = 0;
+    }
+    utf16[value.size() * 2] = 0;
+    utf16[value.size() * 2 + 1] = 0;
+
+    if (utf16.size() > entry.max_byte_length) {
+        utf16.resize(entry.max_byte_length);
+    }
+    std::vector<uint8_t> padded(entry.max_byte_length, 0);
+    std::memcpy(padded.data(), utf16.data(), utf16.size());
+
+    if (!set_bytes_at_offset(entry.value_offset,
+                              std::span<const uint8_t>(padded.data(), padded.size()))) {
+        return false;
+    }
+
+    entry.value = value;
+    m_version_info->strings[key] = value;
+    return true;
+}
+
 std::vector<uint8_t> PE::write() const {
     return m_data;
 }
@@ -604,56 +796,71 @@ bool PE::write(const std::string& filename) const {
 // Directory Parsers
 // ============================================================================
 
-void PE::parse_data_directories() {
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::EXPORT) &&
+void PE::parse_data_directories(std::initializer_list<int> directories) {
+    std::set<int> set;
+    for (int d : directories) set.insert(d);
+    parse_data_directories(set);
+}
+
+void PE::parse_data_directories(const std::set<int>& directories) {
+    if (directories.count(static_cast<int>(DirectoryEntry::EXPORT)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::EXPORT) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::EXPORT)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::EXPORT)];
         m_exports = parse_export_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::IMPORT) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::IMPORT)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::IMPORT) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::IMPORT)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::IMPORT)];
         m_imports = parse_import_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BASERELOC) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::BASERELOC)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BASERELOC) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)];
         m_relocations = parse_relocations_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::DEBUG) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::DEBUG)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::DEBUG) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::DEBUG)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::DEBUG)];
         m_debug_data = parse_debug_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::TLS) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::TLS)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::TLS) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::TLS)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::TLS)];
         m_tls_data = parse_directory_tls(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::EXCEPTION) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::EXCEPTION)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::EXCEPTION) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::EXCEPTION)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::EXCEPTION)];
         m_exceptions = parse_exceptions_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::LOAD_CONFIG) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::LOAD_CONFIG)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::LOAD_CONFIG) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::LOAD_CONFIG)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::LOAD_CONFIG)];
         m_load_config_data = parse_directory_load_config(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BOUND_IMPORT) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::BOUND_IMPORT)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BOUND_IMPORT) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::BOUND_IMPORT)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::BOUND_IMPORT)];
         m_bound_imports = parse_directory_bound_imports(dir.VirtualAddress, dir.Size);
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::RESOURCE) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::RESOURCE)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::RESOURCE) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::RESOURCE)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::RESOURCE)];
         auto result = parse_resources_directory(dir.VirtualAddress, dir.Size);
@@ -674,23 +881,33 @@ void PE::parse_data_directories() {
         }
     }
 
-    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::DELAY_IMPORT) &&
+    if (directories.count(static_cast<int>(DirectoryEntry::DELAY_IMPORT)) &&
+        m_data_directories.size() > static_cast<size_t>(DirectoryEntry::DELAY_IMPORT) &&
         m_data_directories[static_cast<size_t>(DirectoryEntry::DELAY_IMPORT)].VirtualAddress) {
         auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::DELAY_IMPORT)];
         m_delay_imports = parse_delay_import_directory(dir.VirtualAddress, dir.Size);
     }
 }
 
+void PE::parse_data_directories() {
+    std::set<int> all;
+    for (size_t i = 0; i < m_data_directories.size() && i < 16; i++) {
+        all.insert(static_cast<int>(i));
+    }
+    parse_data_directories(all);
+}
+
 std::vector<ImportDescData> PE::parse_import_directory(uint32_t rva, uint32_t size) {
     std::vector<ImportDescData> import_descs;
     size_t desc_size = 20;
+    uint32_t end_rva = rva + size;
 
     while (true) {
         if (rva + desc_size > m_data_size) break;
+        if (rva + desc_size > end_rva) break;
 
-        auto import_desc = ImageImportDescriptor::parse(m_data, rva);
-        if (import_desc.OriginalFirstThunk == 0 && import_desc.FirstThunk == 0 &&
-            import_desc.Name == 0) {
+        auto import_desc = ImageImportDescriptor::parse(m_data, get_offset_from_rva(rva));
+        if (import_desc.all_zeroes()) {
             break;
         }
 
@@ -837,7 +1054,7 @@ std::vector<ImportData> PE::parse_imports(
 std::optional<ExportDirData> PE::parse_export_directory(uint32_t rva, uint32_t size) {
     if (rva + 40 > m_data_size) return std::nullopt;
 
-    auto export_dir = ImageExportDirectory::parse(m_data, rva);
+    auto export_dir = ImageExportDirectory::parse(m_data, get_offset_from_rva(rva));
     if (export_dir.NumberOfFunctions == 0 && export_dir.NumberOfNames == 0) {
         return std::nullopt;
     }
@@ -917,14 +1134,14 @@ std::vector<DebugData> PE::parse_debug_directory(uint32_t rva, uint32_t size) {
     return debug;
 }
 
-std::vector<BaseRelocationData> PE::parse_relocations_directory(uint32_t rva, uint32_t size) {
+std::vector<BaseRelocationData> PE::parse_relocations_directory(uint32_t rva, uint32_t size) const {
     std::vector<BaseRelocationData> relocations;
     uint32_t end = rva + size;
 
     while (rva < end) {
         if (rva + 8 > m_data_size) break;
 
-        auto rlc = ImageBaseRelocation::parse(m_data, rva);
+        auto rlc = ImageBaseRelocation::parse(m_data, get_offset_from_rva(rva));
         if (rlc.VirtualAddress == 0 && rlc.SizeOfBlock == 0) break;
         if (rlc.SizeOfBlock < 8 || rlc.SizeOfBlock > m_data_size) break;
 
@@ -972,14 +1189,14 @@ std::optional<TlsData> PE::parse_directory_tls(uint32_t rva, uint32_t size) {
 
     if (is_pe32_plus()) {
         if (rva + 40 > m_data_size) return std::nullopt;
-        auto dir = ImageTlsDirectory64::parse(m_data, rva);
+        auto dir = ImageTlsDirectory64::parse(m_data, get_offset_from_rva(rva));
         tls.start_address_of_raw_data = dir.StartAddressOfRawData;
         tls.end_address_of_raw_data = dir.EndAddressOfRawData;
         tls.address_of_index = dir.AddressOfIndex;
         tls.address_of_callbacks = dir.AddressOfCallBacks;
     } else {
         if (rva + 24 > m_data_size) return std::nullopt;
-        auto dir = ImageTlsDirectory32::parse(m_data, rva);
+        auto dir = ImageTlsDirectory32::parse(m_data, get_offset_from_rva(rva));
         tls.start_address_of_raw_data = dir.StartAddressOfRawData;
         tls.end_address_of_raw_data = dir.EndAddressOfRawData;
         tls.address_of_index = dir.AddressOfIndex;
@@ -1001,7 +1218,7 @@ std::vector<ExceptionsDirEntryData> PE::parse_exceptions_directory(uint32_t rva,
     uint32_t end = rva + size;
 
     while (rva + rf_size <= end && rva + rf_size <= m_data_size) {
-        auto rf = RuntimeFunction::parse(m_data, rva);
+        auto rf = RuntimeFunction::parse(m_data, get_offset_from_rva(rva));
 
         ExceptionsDirEntryData entry;
         entry.struct_offset = rva;
@@ -1263,6 +1480,7 @@ std::optional<VersionInfo> PE::parse_version_information(uint32_t rva) {
 
     VersionInfo vi;
     vi.name = key;
+    vi.base_rva = rva;
 
     // VS_FIXEDFILEINFO follows the key, dword-aligned
     auto ffi_offset = dword_align(6 + 2 * (static_cast<uint32_t>(key.size()) + 1), rva);
@@ -1337,6 +1555,13 @@ std::optional<VersionInfo> PE::parse_version_information(uint32_t rva) {
                             str_offset + 6 + 2 * (static_cast<uint32_t>(str_key.size()) + 1), rva));
                         std::string val = get_string_u_at_rva(val_rva, str_value_length);
                         vi.strings[str_key] = val;
+
+                        VersionStringEntry entry;
+                        entry.value = val;
+                        entry.value_rva = val_rva;
+                        entry.value_offset = get_offset_from_rva(val_rva);
+                        entry.max_byte_length = str_value_length;
+                        vi.entries[str_key] = entry;
                     }
 
                     str_offset = dword_align(str_offset + str_length, rva);
@@ -1356,11 +1581,13 @@ std::vector<DelayImportDescData> PE::parse_delay_import_directory(uint32_t rva, 
     std::vector<DelayImportDescData> import_descs;
     size_t desc_size = 32;
     size_t error_count = 0;
+    uint32_t end_rva = rva + size;
 
     while (true) {
         if (rva + desc_size > m_data_size) break;
+        if (rva + desc_size > end_rva) break;
 
-        auto import_desc = ImageDelayImportDescriptor::parse(m_data, rva);
+        auto import_desc = ImageDelayImportDescriptor::parse(m_data, get_offset_from_rva(rva));
         if (import_desc.all_zeroes()) break;
 
         uint32_t int_rva = import_desc.DelayINT;
@@ -1559,9 +1786,7 @@ std::string PE::get_imphash() const {
         }
     }
 
-    MD5 md5;
-    md5.update(result);
-    return md5.hexdigest();
+    return hash_helpers::md5_hex(result);
 }
 
 std::string PE::get_exphash() const {
@@ -1577,9 +1802,7 @@ std::string PE::get_exphash() const {
     }
     if (result.empty()) return "";
 
-    MD5 md5;
-    md5.update(result);
-    return md5.hexdigest();
+    return hash_helpers::md5_hex(result);
 }
 
 void PE::show_warnings() const {
@@ -1699,8 +1922,7 @@ std::vector<std::string> PE::get_resources_strings() const {
                         auto rva = sub_entry.data_entry->data_rva;
                         auto size = sub_entry.data_entry->size;
                         if (rva + size <= m_data_size) {
-                            auto str = get_string_u_at_rva(rva, size / 2);
-                            if (!str.empty()) {
+                            if (auto str = get_string_u_at_rva(rva, size / 2); !str.empty()) {
                                 result.push_back(str);
                             }
                         }
@@ -1777,12 +1999,27 @@ std::optional<RichHeaderData> PE::parse_rich_header() {
     return result;
 }
 
-std::string PE::get_rich_header_hash() const {
+std::string PE::get_rich_header_hash(const std::string& algorithm) const {
     if (!m_rich_header || m_rich_header->clear_data.empty()) return "";
 
-    MD5 md5;
-    md5.update(m_rich_header->clear_data);
-    return md5.hexdigest();
+    std::string algo_lower;
+    algo_lower.reserve(algorithm.size());
+    for (char c : algorithm) algo_lower.push_back(static_cast<char>(std::tolower(c)));
+
+    if (algo_lower == "md5") {
+        return hash_helpers::md5_hex(m_rich_header->clear_data);
+    }
+    if (algo_lower == "sha1") {
+        return hash_helpers::sha1_hex(m_rich_header->clear_data);
+    }
+    if (algo_lower == "sha256") {
+        return hash_helpers::sha256_hex(m_rich_header->clear_data);
+    }
+    if (algo_lower == "sha512") {
+        return hash_helpers::sha512_hex(m_rich_header->clear_data);
+    }
+
+    throw std::invalid_argument("Unknown rich header hash algorithm: " + algorithm);
 }
 
 } // namespace pefile

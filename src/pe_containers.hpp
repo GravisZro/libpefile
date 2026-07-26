@@ -9,6 +9,12 @@
 
 namespace pefile
 {
+  using std::int64_t;
+  using std::uint8_t;
+  using std::uint16_t;
+  using std::uint32_t;
+  using std::uint64_t;
+  using std::size_t;
 
   class PE;
 
@@ -212,6 +218,14 @@ namespace pefile
     std::vector<std::pair<uint32_t, uint32_t> > values;
   };
 
+  struct VersionStringEntry
+  {
+    std::string value;
+    uint32_t value_rva = 0;
+    uint32_t value_offset = 0;
+    uint32_t max_byte_length = 0;
+  };
+
   struct VersionInfo
   {
     std::string name;
@@ -229,6 +243,8 @@ namespace pefile
     uint32_t file_date_ms = 0;
     uint32_t file_date_ls = 0;
     std::unordered_map<std::string, std::string> strings;
+    std::unordered_map<std::string, VersionStringEntry> entries;
+    uint32_t base_rva = 0;
   };
 
 } // namespace pefile

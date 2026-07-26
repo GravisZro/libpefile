@@ -23,6 +23,7 @@ build*/
 # test data
 test/
 temporary_files/
+*.dmp
 
 # old codebase
 pefile-*/

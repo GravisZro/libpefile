@@ -3,8 +3,10 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <vector>
@@ -50,7 +52,9 @@ namespace pefile
     std::string get_string_at_rva(uint32_t rva, size_t max_length = MAX_STRING_LENGTH) const;
     std::string get_string_u_at_rva(uint32_t rva, size_t max_length = 0x10000) const;
 
-    std::vector<uint8_t> get_memory_mapped_image(uint32_t max_virtual_address = 0x10000000) const;
+    std::vector<uint8_t> get_memory_mapped_image(uint32_t max_virtual_address = 0x10000000,
+                                            std::optional<uint64_t> image_base = std::nullopt) const;
+    void relocate_image(uint64_t new_image_base);
 
     std::span<const uint8_t> get_overlay() const;
     std::optional<uint32_t> get_overlay_data_start_offset() const;
@@ -60,7 +64,7 @@ namespace pefile
     std::string get_exphash() const;
 
     std::optional<RichHeaderData> parse_rich_header();
-    std::string get_rich_header_hash() const;
+    std::string get_rich_header_hash(const std::string& algorithm = "md5") const;
 
     std::vector<std::string> get_warnings() const { return m_warnings; }
     void show_warnings() const;
@@ -92,6 +96,8 @@ namespace pefile
     bool write(const std::string& filename) const;
 
     void parse_data_directories();
+    void parse_data_directories(std::initializer_list<int> directories);
+    void parse_data_directories(const std::set<int>& directories);
 
     const DosHeader& dos_header() const { return m_dos_header; }
     const FileHeader& file_header() const { return m_file_header; }
@@ -109,6 +115,7 @@ namespace pefile
     const std::vector<ExceptionsDirEntryData>& exceptions() const { return m_exceptions; }
     const std::optional<LoadConfigData>& load_config_data() const { return m_load_config_data; }
     const std::optional<VersionInfo>& version_info() const { return m_version_info; }
+    bool set_version_string(const std::string& key, const std::string& value);
     const std::optional<RichHeaderData>& rich_header() const { return m_rich_header; }
     const std::vector<ResourceDirData>& resources() const { return m_resources; }
     const std::vector<DelayImportDescData>& delay_imports() const { return m_delay_imports; }
@@ -127,7 +134,7 @@ namespace pefile
                                           uint32_t max_length = 0);
     std::optional<ExportDirData> parse_export_directory(uint32_t rva, uint32_t size);
     std::vector<DebugData> parse_debug_directory(uint32_t rva, uint32_t size);
-    std::vector<BaseRelocationData> parse_relocations_directory(uint32_t rva, uint32_t size);
+    std::vector<BaseRelocationData> parse_relocations_directory(uint32_t rva, uint32_t size) const;
     std::optional<TlsData> parse_directory_tls(uint32_t rva, uint32_t size);
     std::vector<ExceptionsDirEntryData> parse_exceptions_directory(uint32_t rva, uint32_t size);
     std::optional<LoadConfigData> parse_directory_load_config(uint32_t rva, uint32_t size);
