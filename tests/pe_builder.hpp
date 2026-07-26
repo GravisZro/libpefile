@@ -178,7 +178,7 @@ private:
 
         // Write optional header fields before data directories
         auto* base = reinterpret_cast<const uint8_t*>(&opt);
-        size_t fields_size = sizeof(pefile::OptionalHeader32) - sizeof(pefile::DataDirectoryRaw) * 16;
+        size_t fields_size = sizeof(pefile::OptionalHeader32);
         result.insert(result.end(), base, base + fields_size);
 
         // Data directories
@@ -209,7 +209,7 @@ private:
 
         // Write optional header fields before data directories
         auto* base = reinterpret_cast<const uint8_t*>(&opt);
-        size_t fields_size = sizeof(pefile::OptionalHeader64) - sizeof(pefile::DataDirectoryRaw) * 16;
+        size_t fields_size = sizeof(pefile::OptionalHeader64);
         result.insert(result.end(), base, base + fields_size);
 
         // Data directories
