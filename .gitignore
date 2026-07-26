@@ -22,7 +22,7 @@ test/
 temporary_files/
 
 # old codebase
-pefile-master/
+pefile-*/
 
 # documentation
 *.pdf
