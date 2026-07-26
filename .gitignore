@@ -5,7 +5,7 @@
 # user/testing related file
 *.user
 #*.sh
-*.txt
+#*.txt
 *.bin
 
 # automatically generated backups
