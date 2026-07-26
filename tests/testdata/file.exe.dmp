@@ -1,0 +1,18 @@
+DOS Header:
+  e_magic: 0x5a4d
+  e_lfanew: 0x80
+
+File Header:
+  Machine: 0x14c
+  NumberOfSections: 5
+  Characteristics: 0x30f
+
+Sections:
+  .text: VA=0x1000 Size=0x7600 Chars=0x60500020
+  .data: VA=0x9000 Size=0x1400 Chars=0xc0600040
+  .bss: VA=0xb000 Size=0x0 Chars=0xc0400080
+  .idata: VA=0xc000 Size=0x800 Chars=0xc0300040
+  .rsrc: VA=0xd000 Size=0x1a00 Chars=0xc0300040
+
+Warnings:
+  Invalid resources directory. Can't read directory data at RVA: 0x53248

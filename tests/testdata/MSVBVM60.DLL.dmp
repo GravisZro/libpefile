@@ -1,0 +1,32 @@
+DOS Header:
+  e_magic: 0x5a4d
+  e_lfanew: 0x80
+
+File Header:
+  Machine: 0x14c
+  NumberOfSections: 5
+  Characteristics: 0x2102
+
+Sections:
+  .text: VA=0x1000 Size=0xfc000 Chars=0x60000020
+  ENGINE: VA=0xfd000 Size=0xd000 Chars=0x60000020
+  .data: VA=0x10a000 Size=0x7000 Chars=0xc0000040
+  .rsrc: VA=0x112000 Size=0x31000 Chars=0x40000040
+  .reloc: VA=0x143000 Size=0x10000 Chars=0x42000040
+
+Imports:
+  KERNEL32.dll (a8 symbols)
+  USER32.dll (f0 symbols)
+  GDI32.dll (74 symbols)
+  ADVAPI32.dll (1e symbols)
+  ole32.dll (49 symbols)
+  OLEAUT32.dll (45 symbols)
+
+Exports:
+  MSVBVM60.DLL (27b symbols)
+
+Resources:
+  37 top-level entries
+
+Bound Imports:
+  6 entries

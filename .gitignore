@@ -13,6 +13,9 @@
 *.autosave
 *.swp
 
+# planning dir
+.sisyphus/
+
 # build dirs
 build/
 build*/

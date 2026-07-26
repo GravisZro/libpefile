@@ -1,0 +1,16 @@
+DOS Header:
+  e_magic: 0x5a4d
+  e_lfanew: 0x60
+
+File Header:
+  Machine: 0x8664
+  NumberOfSections: 3
+  Characteristics: 0x22
+
+Sections:
+  .text: VA=0x1000 Size=0x8 Chars=0x60000020
+  .reloc: VA=0x2000 Size=0x8 Chars=0x42000040
+  .rsrc: VA=0x3000 Size=0x4380 Chars=0x40000040
+
+Warnings:
+  Error parsing the resources directory. The directory contains 11141270 entries
