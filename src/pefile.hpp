@@ -17,7 +17,6 @@
 
 namespace pefile
 {
-
   class PE
   {
   public:
