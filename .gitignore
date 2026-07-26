@@ -1,0 +1,28 @@
+# binaries
+*.o
+*.pro
+
+# user/testing related file
+*.user
+#*.sh
+*.txt
+*.bin
+
+# automatically generated backups
+*.bak*
+*.autosave
+*.swp
+
+# build dirs
+build/
+build*/
+
+# test data
+test/
+temporary_files/
+
+# old codebase
+pefile-master/
+
+# documentation
+*.pdf
