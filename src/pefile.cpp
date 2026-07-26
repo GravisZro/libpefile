@@ -36,7 +36,7 @@ UnwindInfo UnwindInfo::parse(std::span<const std::uint8_t> data, std::size_t off
         h.FrameRegister = *p++;
         h.FrameOffset = *p++;
     }
-    for (int i = 0; i < h.CountOfCodes && (p - data.data()) < static_cast<long long>(data.size()); i++) {
+    for (int i = 0; i < h.CountOfCodes && (p - data.data()) + 2 <= static_cast<long long>(data.size()); i++) {
         std::uint16_t code;
         std::memcpy(&code, p, 2); p += 2;
         h.UnwindCodes.push_back(code);
@@ -214,7 +214,7 @@ void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
         auto file_alignment = is_pe32_plus() ?
             optional_header_64_.FileAlignment : optional_header_32_.FileAlignment;
 
-        if (section.SizeOfRawData + section.PointerToRawData > data_size_) {
+        if (static_cast<std::uint64_t>(section.SizeOfRawData) + section.PointerToRawData > data_size_) {
             add_warning("Error parsing section " + std::to_string(i) + ". SizeOfRawData is larger than file.");
         }
 
@@ -226,7 +226,6 @@ void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
             add_warning("Suspicious value found parsing section " + std::to_string(i) + ". VirtualAddress is beyond limit.");
         }
 
-        section.VirtualSize = section.Misc;
         sections_.push_back(section);
     }
 
@@ -250,7 +249,7 @@ void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
 const SectionHeader* PE::find_section_for_rva(std::uint32_t rva) const {
     for (auto& s : sections_) {
         if (s.VirtualAddress <= rva &&
-            rva < s.VirtualAddress + std::max(s.SizeOfRawData, s.VirtualSize)) {
+            rva < s.VirtualAddress + static_cast<std::uint32_t>(std::max(s.SizeOfRawData, s.VirtualSize))) {
             return &s;
         }
     }
@@ -260,7 +259,7 @@ const SectionHeader* PE::find_section_for_rva(std::uint32_t rva) const {
 const SectionHeader* PE::find_section_for_offset(std::uint32_t offset) const {
     for (auto& s : sections_) {
         if (s.PointerToRawData <= offset &&
-            offset < s.PointerToRawData + s.SizeOfRawData) {
+            offset < static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData) {
             return &s;
         }
     }
@@ -270,7 +269,7 @@ const SectionHeader* PE::find_section_for_offset(std::uint32_t offset) const {
 std::uint32_t PE::get_offset_from_rva(std::uint32_t rva) const {
     for (auto& s : sections_) {
         if (s.VirtualAddress <= rva &&
-            rva < s.VirtualAddress + std::max(s.SizeOfRawData, s.VirtualSize)) {
+            rva < s.VirtualAddress + static_cast<std::uint32_t>(std::max(s.SizeOfRawData, s.VirtualSize))) {
             return s.PointerToRawData + (rva - s.VirtualAddress);
         }
     }
@@ -279,7 +278,7 @@ std::uint32_t PE::get_offset_from_rva(std::uint32_t rva) const {
 
 std::uint32_t PE::get_rva_from_offset(std::uint32_t offset) const {
     for (auto& s : sections_) {
-        if (s.PointerToRawData <= offset && offset < s.PointerToRawData + s.SizeOfRawData) {
+        if (s.PointerToRawData <= offset && offset < static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData) {
             return s.VirtualAddress + (offset - s.PointerToRawData);
         }
     }
@@ -295,18 +294,15 @@ std::span<const std::uint8_t> PE::get_data_span(std::uint32_t rva, std::uint32_t
 
 std::span<const std::uint8_t> PE::get_data(std::uint32_t rva, std::optional<std::uint32_t> length) const {
     auto section = find_section_for_rva(rva);
-    if (!section && rva != 0) {
+    if (!section) {
         if (!length) {
             length = 1;
         }
         return get_data_span(rva, *length);
     }
-    if (!section) {
-        throw PEFormatError("No section for RVA");
-    }
 
     auto file_offset = get_offset_from_rva(rva);
-    auto section_end = section->PointerToRawData + section->SizeOfRawData;
+    auto section_end = static_cast<std::uint64_t>(section->PointerToRawData) + section->SizeOfRawData;
 
     if (length) {
         auto end = file_offset + *length;
@@ -315,7 +311,7 @@ std::span<const std::uint8_t> PE::get_data(std::uint32_t rva, std::optional<std:
         return std::span<const std::uint8_t>(data_.data() + file_offset, end - file_offset);
     }
 
-    auto max_len = std::min(static_cast<std::uint32_t>(data_size_), section_end) - file_offset;
+    auto max_len = std::min(static_cast<std::uint32_t>(data_size_), static_cast<std::uint32_t>(section_end)) - file_offset;
     if (file_offset >= data_size_ || max_len > data_size_) throw PEFormatError("Offset out of bounds");
     return std::span<const std::uint8_t>(data_.data() + file_offset, max_len);
 }
@@ -379,8 +375,8 @@ std::vector<std::uint8_t> PE::get_memory_mapped_image(std::uint32_t max_virtual_
     for (auto& section : sections_) {
         if (section.VirtualAddress >= max_virtual_address) continue;
         if (section.VirtualAddress + section.SizeOfRawData > max_virtual_address) continue;
-        if (section.PointerToRawData + section.SizeOfRawData > data_size_) continue;
-        if (section.VirtualAddress + section.SizeOfRawData > image_size) continue;
+        if (static_cast<std::uint64_t>(section.PointerToRawData) + section.SizeOfRawData > data_size_) continue;
+        if (static_cast<std::uint64_t>(section.VirtualAddress) + section.SizeOfRawData > image_size) continue;
         std::memcpy(mapped.data() + section.VirtualAddress,
                     data_.data() + section.PointerToRawData,
                     section.SizeOfRawData);
@@ -663,6 +659,18 @@ void PE::parse_data_directories() {
         auto result = parse_resources_directory(dir.VirtualAddress, dir.Size);
         if (result) {
             resources_.push_back(*result);
+
+            for (auto& entry : result->entries) {
+                if (entry.id == 16 && entry.directory) {
+                    for (auto& sub : entry.directory->entries) {
+                        if (sub.data_entry) {
+                            version_info_ = parse_version_information(sub.data_entry->data_rva);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
         }
     }
 
@@ -843,7 +851,6 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
     auto addr_of_name_ordinals = get_offset_from_rva(export_dir.AddressOfNameOrdinals);
     auto addr_of_functions = get_offset_from_rva(export_dir.AddressOfFunctions);
 
-
     std::vector<ExportData> exports;
 
     for (std::uint32_t i = 0; i < std::min(export_dir.NumberOfNames,
@@ -882,7 +889,6 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
         exp.is_forwarder = !forwarder.empty();
         exports.push_back(exp);
     }
-
 
     if (exports.empty()) return std::nullopt;
 
@@ -941,7 +947,7 @@ std::vector<BaseRelocationData> PE::parse_relocations_directory(std::uint32_t rv
             std::uint32_t reloc_offset = word & 0x0FFF;
 
             auto key = std::make_pair(reloc_offset, reloc_type);
-            if (seen.count(key)) break;
+            if (seen.count(key)) continue;
             seen.insert(key);
 
             RelocationData reloc;
@@ -1033,61 +1039,61 @@ std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva,
             lc.de_commit_free_block_threshold = get_qword_at_rva(rva + 24);
             lc.de_commit_total_free_threshold = get_qword_at_rva(rva + 32);
         }
-        if (lc_size >= 68) {
+        if (lc_size >= 72) {
             lc.lock_prefix_table = get_qword_at_rva(rva + 40);
             lc.maximum_allocation_size = get_qword_at_rva(rva + 48);
             lc.virtual_memory_threshold = get_qword_at_rva(rva + 56);
             lc.process_affinity_mask = get_qword_at_rva(rva + 64);
         }
-        if (lc_size >= 72) {
+        if (lc_size >= 76) {
             lc.process_heap_flags = get_dword_at_rva(rva + 72);
         }
-        if (lc_size >= 76) {
+        if (lc_size >= 80) {
             lc.csd_version = get_word_at_rva(rva + 76);
             lc.dependent_load_flags = get_word_at_rva(rva + 78);
         }
-        if (lc_size >= 88) {
+        if (lc_size >= 96) {
             lc.edit_list = get_qword_at_rva(rva + 80);
             lc.security_cookie = get_qword_at_rva(rva + 88);
         }
-        if (lc_size >= 104) {
+        if (lc_size >= 112) {
             lc.se_handler_table = get_qword_at_rva(rva + 96);
             lc.se_handler_count = get_qword_at_rva(rva + 104);
         }
-        if (lc_size >= 120) {
+        if (lc_size >= 128) {
             lc.guard_cf_check_function_pointer = get_qword_at_rva(rva + 112);
             lc.guard_cf_dispatch_function_pointer = get_qword_at_rva(rva + 120);
         }
-        if (lc_size >= 136) {
+        if (lc_size >= 144) {
             lc.guard_cf_function_table = get_qword_at_rva(rva + 128);
             lc.guard_cf_function_count = get_qword_at_rva(rva + 136);
         }
-        if (lc_size >= 140) {
+        if (lc_size >= 144) {
             lc.guard_flags = get_dword_at_rva(rva + 140);
         }
-        if (lc_size >= 152) {
+        if (lc_size >= 156) {
             lc.code_integrity_flags = get_word_at_rva(rva + 144);
             lc.code_integrity_catalog = get_word_at_rva(rva + 146);
             lc.code_integrity_catalog_offset = get_dword_at_rva(rva + 148);
             lc.code_integrity_reserved = get_dword_at_rva(rva + 152);
         }
-        if (lc_size >= 168) {
+        if (lc_size >= 172) {
             lc.guard_address_taken_iat_entry_table = get_qword_at_rva(rva + 156);
             lc.guard_address_taken_iat_entry_count = get_qword_at_rva(rva + 164);
         }
-        if (lc_size >= 184) {
+        if (lc_size >= 188) {
             lc.guard_long_jump_target_table = get_qword_at_rva(rva + 172);
             lc.guard_long_jump_target_count = get_qword_at_rva(rva + 180);
         }
-        if (lc_size >= 200) {
+        if (lc_size >= 204) {
             lc.dynamic_value_reloc_table = get_qword_at_rva(rva + 188);
             lc.chpe_metadata_pointer = get_qword_at_rva(rva + 196);
         }
-        if (lc_size >= 216) {
+        if (lc_size >= 220) {
             lc.guard_rf_failure_routine = get_qword_at_rva(rva + 204);
             lc.guard_rf_failure_routine_function_pointer = get_qword_at_rva(rva + 212);
         }
-        if (lc_size >= 224) {
+        if (lc_size >= 228) {
             lc.dynamic_value_reloc_table_offset = get_dword_at_rva(rva + 220);
             lc.dynamic_value_reloc_table_section = get_word_at_rva(rva + 224);
             lc.reserved2 = get_word_at_rva(rva + 226);
@@ -1096,7 +1102,7 @@ std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva,
             lc.guard_rf_verify_stack_pointer_function_pointer = get_qword_at_rva(rva + 228);
             lc.hot_patch_table_offset = get_dword_at_rva(rva + 236);
         }
-        if (lc_size >= 248) {
+        if (lc_size >= 244) {
             lc.reserved3 = get_dword_at_rva(rva + 240);
         }
         if (lc_size >= 264) {
@@ -1119,7 +1125,7 @@ std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva,
             lc.guard_memcpy_function_pointer = get_qword_at_rva(rva + 312);
         }
     } else {
-        if (lc_size >= 40) {
+        if (lc_size >= 44) {
             lc.time_date_stamp = get_dword_at_rva(rva + 4);
             lc.major_version = get_word_at_rva(rva + 8);
             lc.minor_version = get_word_at_rva(rva + 10);
@@ -1159,45 +1165,45 @@ std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva,
         if (lc_size >= 92) {
             lc.guard_flags = get_dword_at_rva(rva + 88);
         }
-        if (lc_size >= 100) {
+        if (lc_size >= 104) {
             lc.code_integrity_flags = get_word_at_rva(rva + 92);
             lc.code_integrity_catalog = get_word_at_rva(rva + 94);
             lc.code_integrity_catalog_offset = get_dword_at_rva(rva + 96);
             lc.code_integrity_reserved = get_dword_at_rva(rva + 100);
         }
-        if (lc_size >= 108) {
+        if (lc_size >= 112) {
             lc.guard_address_taken_iat_entry_table = get_dword_at_rva(rva + 104);
             lc.guard_address_taken_iat_entry_count = get_dword_at_rva(rva + 108);
         }
-        if (lc_size >= 116) {
+        if (lc_size >= 120) {
             lc.guard_long_jump_target_table = get_dword_at_rva(rva + 112);
             lc.guard_long_jump_target_count = get_dword_at_rva(rva + 116);
         }
-        if (lc_size >= 124) {
+        if (lc_size >= 128) {
             lc.dynamic_value_reloc_table = get_dword_at_rva(rva + 120);
             lc.chpe_metadata_pointer = get_dword_at_rva(rva + 124);
         }
-        if (lc_size >= 132) {
+        if (lc_size >= 136) {
             lc.guard_rf_failure_routine = get_dword_at_rva(rva + 128);
             lc.guard_rf_failure_routine_function_pointer = get_dword_at_rva(rva + 132);
         }
-        if (lc_size >= 140) {
+        if (lc_size >= 144) {
             lc.dynamic_value_reloc_table_offset = get_dword_at_rva(rva + 136);
             lc.dynamic_value_reloc_table_section = get_word_at_rva(rva + 140);
             lc.reserved2 = get_word_at_rva(rva + 142);
         }
-        if (lc_size >= 148) {
+        if (lc_size >= 152) {
             lc.guard_rf_verify_stack_pointer_function_pointer = get_dword_at_rva(rva + 144);
             lc.hot_patch_table_offset = get_dword_at_rva(rva + 148);
         }
-        if (lc_size >= 152) {
+        if (lc_size >= 156) {
             lc.reserved3 = get_dword_at_rva(rva + 152);
         }
-        if (lc_size >= 160) {
+        if (lc_size >= 164) {
             lc.enclave_configuration_pointer = get_dword_at_rva(rva + 156);
             lc.volatile_metadata_pointer = get_dword_at_rva(rva + 160);
         }
-        if (lc_size >= 168) {
+        if (lc_size >= 172) {
             lc.guard_eh_continuation_table = get_dword_at_rva(rva + 164);
             lc.guard_eh_continuation_count = get_dword_at_rva(rva + 168);
         }
@@ -1268,7 +1274,7 @@ std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
         if (signature == 0xFEEF04BD) {
             if (value_length >= 52 || value_length == 0) {
                 auto abs = ffi_abs;
-                if (abs + 52 <= data_size_) {
+                if (abs + 56 <= data_size_) {
                     vi.signature = signature;
                     vi.struct_version = get_word_at_offset(abs + 8) | (get_word_at_offset(abs + 10) << 16);
                     vi.version_ms = get_dword_at_offset(abs + 12);

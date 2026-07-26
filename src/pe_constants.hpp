@@ -342,16 +342,20 @@ constexpr std::string_view allowed_function_name =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_?@";
 
 inline bool is_valid_dos_filename(std::string_view s) {
-    if (s.empty() || s.size() > 8) return false;
+    if (s.empty()) return false;
     return std::all_of(s.begin(), s.end(), [](char c) {
         return allowed_filename.find(c) != std::string_view::npos;
     });
 }
 
-inline bool is_valid_function_name(std::string_view s, bool /*relax_allowed_characters*/ = false) {
+constexpr std::string_view allowed_function_name_relaxed =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_?@.";
+
+inline bool is_valid_function_name(std::string_view s, bool relax_allowed_characters = false) {
     if (s.empty()) return false;
-    return std::all_of(s.begin(), s.end(), [](char c) {
-        return allowed_function_name.find(c) != std::string_view::npos;
+    auto& chars = relax_allowed_characters ? allowed_function_name_relaxed : allowed_function_name;
+    return std::all_of(s.begin(), s.end(), [&chars](char c) {
+        return chars.find(c) != std::string_view::npos;
     });
 }
 

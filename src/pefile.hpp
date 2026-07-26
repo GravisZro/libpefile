@@ -168,11 +168,8 @@ private:
     std::vector<DelayImportDescData> delay_imports_;
 
     std::uint32_t pe_type_ = 0;
-    std::uint32_t overlay_offset_ = 0;
     std::vector<std::string> warnings_;
 
-    mutable const SectionHeader* last_section_by_rva_ = nullptr;
-    mutable const SectionHeader* last_section_by_offset_ = nullptr;
 
     void add_warning(const std::string& w) { warnings_.push_back(w); }
 };
