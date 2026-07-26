@@ -13,7 +13,7 @@ SignatureDatabase::SignatureDatabase(const std::string& filename) {
     load(filename);
 }
 
-SignatureDatabase::SignatureDatabase(std::span<const std::uint8_t> data) {
+SignatureDatabase::SignatureDatabase(std::span<const uint8_t> data) {
     load(data);
 }
 
@@ -26,7 +26,7 @@ void SignatureDatabase::load(const std::string& filename) {
     load_internal(content);
 }
 
-void SignatureDatabase::load(std::span<const std::uint8_t> data) {
+void SignatureDatabase::load(std::span<const uint8_t> data) {
     std::string content(reinterpret_cast<const char*>(data.data()), data.size());
     load_internal(content);
 }
@@ -51,15 +51,15 @@ void SignatureDatabase::load_internal(std::string_view data) {
         // Remove spaces from signature
         signature.erase(std::remove(signature.begin(), signature.end(), ' '), signature.end());
 
-        auto& target_tree = section_start_only ? signature_tree_section_start_ :
-            (ep_only ? signature_tree_ep_only_true_ : signature_tree_ep_only_false_);
+        auto& target_tree = section_start_only ? m_signature_tree_section_start :
+            (ep_only ? m_signature_tree_ep_only_true : m_signature_tree_ep_only_false);
 
         if (!target_tree) {
             target_tree = std::make_shared<TrieNode>();
         }
 
         auto current = target_tree;
-        for (std::size_t i = 0; i + 1 < signature.size(); i += 2) {
+        for (size_t i = 0; i + 1 < signature.size(); i += 2) {
             std::string byte_str = signature.substr(i, 2);
             if (byte_str == "??") {
                 // Wildcard: use a special child
@@ -70,7 +70,7 @@ void SignatureDatabase::load_internal(std::string_view data) {
                 }
                 current = current->children[0xFF];
             } else {
-                std::uint8_t byte_val = 0;
+                uint8_t byte_val = 0;
                 auto [ptr, ec] = std::from_chars(byte_str.data(),
                     byte_str.data() + 2, byte_val, 16);
                 if (ec != std::errc()) continue;
@@ -90,20 +90,20 @@ std::string SignatureDatabase::match(const PE& pe, bool ep_only, bool section_st
     return results[0].second;
 }
 
-std::vector<std::pair<std::uint32_t, std::string>> SignatureDatabase::match_all(
+std::vector<std::pair<uint32_t, std::string>> SignatureDatabase::match_all(
     const PE& pe, bool ep_only, bool section_start_only) const {
 
-    std::vector<std::pair<std::uint32_t, std::string>> results;
+    std::vector<std::pair<uint32_t, std::string>> results;
 
     auto overlay_offset = pe.get_overlay_data_start_offset();
-    auto max_offset = overlay_offset.value_or(static_cast<std::uint32_t>(
+    auto max_offset = overlay_offset.value_or(static_cast<uint32_t>(
         pe.dos_header().e_lfanew + 4 + pe.file_header().SizeOfOptionalHeader));
 
-    const TrieTree* tree = &signature_tree_ep_only_true_;
+    const TrieTree* tree = &m_signature_tree_ep_only_true;
     if (section_start_only) {
-        tree = &signature_tree_section_start_;
+        tree = &m_signature_tree_section_start;
     } else if (!ep_only) {
-        tree = &signature_tree_ep_only_false_;
+        tree = &m_signature_tree_ep_only_false;
     }
 
     if (!*tree) return results;
@@ -132,7 +132,7 @@ std::vector<std::pair<std::uint32_t, std::string>> SignatureDatabase::match_all(
             }
         }
     } else {
-        for (std::uint32_t offset = 0x200; offset < max_offset; offset++) {
+        for (uint32_t offset = 0x200; offset < max_offset; offset++) {
             auto data = pe.get_data(offset, std::min(max_offset - offset, 256u));
             auto matches = match_signature_tree(*tree, data, 0);
             for (auto& m : matches) {
@@ -146,9 +146,9 @@ std::vector<std::pair<std::uint32_t, std::string>> SignatureDatabase::match_all(
     return results;
 }
 
-std::string SignatureDatabase::match_data(std::span<const std::uint8_t> code_data,
+std::string SignatureDatabase::match_data(std::span<const uint8_t> code_data,
                                            bool ep_only, bool /*section_start_only*/) const {
-    const TrieTree* tree = ep_only ? &signature_tree_ep_only_true_ : &signature_tree_ep_only_false_;
+    const TrieTree* tree = ep_only ? &m_signature_tree_ep_only_true : &m_signature_tree_ep_only_false;
     if (!*tree) return "";
 
     auto matches = match_signature_tree(*tree, code_data, 0);
@@ -159,7 +159,7 @@ std::string SignatureDatabase::match_data(std::span<const std::uint8_t> code_dat
 }
 
 std::vector<std::vector<std::string>> SignatureDatabase::match_signature_tree(
-    const TrieTree& tree, std::span<const std::uint8_t> data, std::size_t depth) const {
+    const TrieTree& tree, std::span<const uint8_t> data, size_t depth) const {
 
     std::vector<std::vector<std::string>> results;
 
@@ -189,7 +189,7 @@ std::vector<std::vector<std::string>> SignatureDatabase::match_signature_tree(
 }
 
 std::string SignatureDatabase::generate_ep_signature(const PE& pe, const std::string& name,
-                                                      std::size_t sig_length) const {
+                                                      size_t sig_length) const {
     auto ep = pe.get_offset_from_rva(
         pe.is_pe32_plus() ? pe.optional_header_64().AddressOfEntryPoint :
                            pe.optional_header_32().AddressOfEntryPoint);
@@ -198,7 +198,7 @@ std::string SignatureDatabase::generate_ep_signature(const PE& pe, const std::st
     std::ostringstream ss;
     ss << "[" << name << "]\n";
     ss << "signature = ";
-    for (std::size_t i = 0; i < data.size(); i++) {
+    for (size_t i = 0; i < data.size(); i++) {
         if (i > 0) ss << " ";
         char buf[4];
         std::snprintf(buf, sizeof(buf), "%02X", data[i]);
@@ -210,7 +210,7 @@ std::string SignatureDatabase::generate_ep_signature(const PE& pe, const std::st
 }
 
 std::vector<std::string> SignatureDatabase::generate_section_signatures(
-    const PE& pe, const std::string& name, std::size_t sig_length) const {
+    const PE& pe, const std::string& name, size_t sig_length) const {
 
     std::vector<std::string> results;
     for (auto& section : pe.sections()) {
@@ -219,7 +219,7 @@ std::vector<std::string> SignatureDatabase::generate_section_signatures(
         std::ostringstream ss;
         ss << "[" << name << "_" << section.name() << "]\n";
         ss << "signature = ";
-        for (std::size_t i = 0; i < data.size(); i++) {
+        for (size_t i = 0; i < data.size(); i++) {
             if (i > 0) ss << " ";
             char buf[4];
             std::snprintf(buf, sizeof(buf), "%02X", data[i]);
@@ -233,17 +233,17 @@ std::vector<std::string> SignatureDatabase::generate_section_signatures(
 }
 
 bool is_probably_packed(const PE& pe, double section_entropy, double packed_threshold) {
-    std::uint64_t total_size = 0;
-    std::uint64_t high_entropy_size = 0;
+    uint64_t total_size = 0;
+    uint64_t high_entropy_size = 0;
 
     for (auto& section : pe.sections()) {
-        auto size = static_cast<std::uint64_t>(section.SizeOfRawData);
+        auto size = static_cast<uint64_t>(section.SizeOfRawData);
         total_size += size;
 
         if (section.SizeOfRawData == 0) continue;
 
         auto data = pe.get_data(section.VirtualAddress, section.SizeOfRawData);
-        std::size_t freq[256] = {};
+        size_t freq[256] = {};
 
         for (auto byte : data) {
             freq[byte]++;

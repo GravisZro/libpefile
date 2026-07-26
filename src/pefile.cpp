@@ -15,16 +15,16 @@
 namespace pefile {
 
 namespace {
-constexpr std::size_t MINIMUM_VALID_OPTIONAL_HEADER_RAW_SIZE = 69;
+constexpr size_t MINIMUM_VALID_OPTIONAL_HEADER_RAW_SIZE = 69;
 constexpr int MAX_SIMULTANEOUS_ERRORS = 3;
-constexpr std::size_t MAX_ALLOWED_RESOURCE_ENTRIES = 4096;
-constexpr std::size_t MAX_REPEATED_ADDRESSES = 15;
-constexpr std::size_t MAX_ADDRESS_SPREAD = 128 * 1024 * 1024;
-constexpr std::uint64_t ADDR_4GB = 0x100000000ULL;
+constexpr size_t MAX_ALLOWED_RESOURCE_ENTRIES = 4096;
+constexpr size_t MAX_REPEATED_ADDRESSES = 15;
+constexpr size_t MAX_ADDRESS_SPREAD = 128 * 1024 * 1024;
+constexpr uint64_t ADDR_4GB = 0x100000000ULL;
 }
 
 // UnwindInfo parse (variable-size struct)
-UnwindInfo UnwindInfo::parse(std::span<const std::uint8_t> data, std::size_t offset) {
+UnwindInfo UnwindInfo::parse(std::span<const uint8_t> data, size_t offset) {
     UnwindInfo h{};
     if (data.size() - offset < 4) return h;
     auto p = data.data() + offset;
@@ -37,7 +37,7 @@ UnwindInfo UnwindInfo::parse(std::span<const std::uint8_t> data, std::size_t off
         h.FrameOffset = *p++;
     }
     for (int i = 0; i < h.CountOfCodes && (p - data.data()) + 2 <= static_cast<long long>(data.size()); i++) {
-        std::uint16_t code;
+        uint16_t code;
         std::memcpy(&code, p, 2); p += 2;
         h.UnwindCodes.push_back(code);
     }
@@ -59,18 +59,18 @@ PE::PE(const std::string& filename, bool fast_load) {
     }
     auto size = file.tellg();
     file.seekg(0);
-    data_.resize(static_cast<std::size_t>(size));
-    file.read(reinterpret_cast<char*>(data_.data()), size);
-    data_size_ = data_.size();
+    m_data.resize(static_cast<size_t>(size));
+    file.read(reinterpret_cast<char*>(m_data.data()), size);
+    m_data_size = m_data.size();
     parse();
     if (!fast_load) {
         full_load();
     }
 }
 
-PE::PE(std::span<const std::uint8_t> data, bool fast_load) {
-    data_.assign(data.begin(), data.end());
-    data_size_ = data_.size();
+PE::PE(std::span<const uint8_t> data, bool fast_load) {
+    m_data.assign(data.begin(), data.end());
+    m_data_size = m_data.size();
     parse();
     if (!fast_load) {
         full_load();
@@ -82,21 +82,21 @@ PE::PE(PE&&) noexcept = default;
 PE& PE::operator=(PE&&) noexcept = default;
 
 void PE::parse() {
-    if (data_size_ < 64) {
+    if (m_data_size < 64) {
         throw PEFormatError("File too small for DOS header");
     }
 
-    dos_header_ = DosHeader::parse(data_, 0);
-    if (dos_header_.e_magic != IMAGE_DOS_SIGNATURE) {
+    m_dos_header = DosHeader::parse(m_data, 0);
+    if (m_dos_header.e_magic != IMAGE_DOS_SIGNATURE) {
         throw PEFormatError("Invalid DOS signature");
     }
 
-    auto nt_headers_offset = static_cast<std::size_t>(dos_header_.e_lfanew);
-    if (nt_headers_offset + 4 > data_size_) {
+    auto nt_headers_offset = static_cast<size_t>(m_dos_header.e_lfanew);
+    if (nt_headers_offset + 4 > m_data_size) {
         throw PEFormatError("Invalid NT headers offset");
     }
 
-    std::uint32_t signature = read_packed<std::uint32_t>(data_, nt_headers_offset);
+    uint32_t signature = read_packed<uint32_t>(m_data, nt_headers_offset);
 
     if ((0xFFFF & signature) == IMAGE_NE_SIGNATURE)
         throw PEFormatError("Invalid NT Headers signature. Probably a NE file");
@@ -109,73 +109,73 @@ void PE::parse() {
     if (signature != IMAGE_NT_SIGNATURE)
         throw PEFormatError("Invalid NT Headers signature.");
 
-    file_header_ = FileHeader::parse(data_, nt_headers_offset + 4);
+    m_file_header = FileHeader::parse(m_data, nt_headers_offset + 4);
 
     auto optional_header_offset = nt_headers_offset + 4 + 20;
-    auto sections_offset = optional_header_offset + file_header_.SizeOfOptionalHeader;
+    auto sections_offset = optional_header_offset + m_file_header.SizeOfOptionalHeader;
 
-    if (sections_offset > data_size_) {
+    if (sections_offset > m_data_size) {
         throw PEFormatError("Sections offset beyond file");
     }
 
-    if (optional_header_offset + 256 <= data_size_) {
-        auto oh_data = std::span<const std::uint8_t>(
-            data_.data() + optional_header_offset,
-            std::min<std::size_t>(256, data_size_ - optional_header_offset));
-        optional_header_32_ = OptionalHeader32::parse(oh_data, 0);
+    if (optional_header_offset + 256 <= m_data_size) {
+        auto oh_data = std::span<const uint8_t>(
+            m_data.data() + optional_header_offset,
+            std::min<size_t>(256, m_data_size - optional_header_offset));
+        m_optional_header_32 = OptionalHeader32::parse(oh_data, 0);
     }
 
-    if (optional_header_32_.Magic == OPTIONAL_HEADER_MAGIC_PE) {
-        pe_type_ = OPTIONAL_HEADER_MAGIC_PE;
-    } else if (optional_header_32_.Magic == OPTIONAL_HEADER_MAGIC_PE_PLUS) {
-        pe_type_ = OPTIONAL_HEADER_MAGIC_PE_PLUS;
-        is_pe32_plus_ = true;
-        optional_header_64_ = read_packed<OptionalHeader64>(data_, optional_header_offset);
+    if (m_optional_header_32.Magic == OPTIONAL_HEADER_MAGIC_PE) {
+        m_pe_type = OPTIONAL_HEADER_MAGIC_PE;
+    } else if (m_optional_header_32.Magic == OPTIONAL_HEADER_MAGIC_PE_PLUS) {
+        m_pe_type = OPTIONAL_HEADER_MAGIC_PE_PLUS;
+        m_is_pe32_plus = true;
+        m_optional_header_64 = read_packed<OptionalHeader64>(m_data, optional_header_offset);
     } else {
         add_warning("Invalid type in Optional Header: 0x" +
-            std::to_string(optional_header_32_.Magic));
+            std::to_string(m_optional_header_32.Magic));
     }
 
-    if (pe_type_ == 0) {
+    if (m_pe_type == 0) {
         throw PEFormatError("No Optional Header found, invalid PE32 or PE32+ file.");
     }
 
-    std::size_t dir_offset = optional_header_offset + (is_pe32_plus() ? 112 : 96);
-    std::uint32_t num_dirs = is_pe32_plus() ?
-        optional_header_64_.NumberOfRvaAndSizes :
-        optional_header_32_.NumberOfRvaAndSizes;
+    size_t dir_offset = optional_header_offset + (is_pe32_plus() ? 112 : 96);
+    uint32_t num_dirs = is_pe32_plus() ?
+        m_optional_header_64.NumberOfRvaAndSizes :
+        m_optional_header_32.NumberOfRvaAndSizes;
 
     if (num_dirs > 0x10) {
         add_warning("Suspicious NumberOfRvaAndSizes: 0x" +
             std::to_string(num_dirs));
     }
 
-    std::uint32_t dir_count = std::min(num_dirs, static_cast<std::uint32_t>(IMAGE_NUMBEROF_DIRECTORY_ENTRIES));
-    for (std::uint32_t i = 0; i < dir_count; i++) {
-        if (dir_offset + 8 > data_size_) break;
-        auto dd = DataDirectory::parse(data_, dir_offset);
+    uint32_t dir_count = std::min(num_dirs, static_cast<uint32_t>(IMAGE_NUMBEROF_DIRECTORY_ENTRIES));
+    for (uint32_t i = 0; i < dir_count; i++) {
+        if (dir_offset + 8 > m_data_size) break;
+        auto dd = DataDirectory::parse(m_data, dir_offset);
         dd.name = std::string(directory_entry_name(static_cast<DirectoryEntry>(i)));
-        data_directories_.push_back(dd);
+        m_data_directories.push_back(dd);
         dir_offset += 8;
     }
 
     parse_sections(sections_offset);
 
-    rich_header_ = parse_rich_header();
+    m_rich_header = parse_rich_header();
 
-    if (pe_type_ == OPTIONAL_HEADER_MAGIC_PE) {
-        auto ep = optional_header_32_.AddressOfEntryPoint;
+    if (m_pe_type == OPTIONAL_HEADER_MAGIC_PE) {
+        auto ep = m_optional_header_32.AddressOfEntryPoint;
         if (ep != 0 && get_section_by_rva(ep).has_value()) {
             auto ep_offset = get_offset_from_rva(ep);
-            if (ep_offset > data_size_) {
+            if (ep_offset > m_data_size) {
                 add_warning("AddressOfEntryPoint lies outside the file");
             }
         }
     } else {
-        auto ep = optional_header_64_.AddressOfEntryPoint;
+        auto ep = m_optional_header_64.AddressOfEntryPoint;
         if (ep != 0 && get_section_by_rva(ep).has_value()) {
             auto ep_offset = get_offset_from_rva(ep);
-            if (ep_offset > data_size_) {
+            if (ep_offset > m_data_size) {
                 add_warning("AddressOfEntryPoint lies outside the file");
             }
         }
@@ -186,21 +186,21 @@ void PE::full_load() {
     parse_data_directories();
 }
 
-void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
-    sections_.clear();
+void PE::parse_sections(size_t offset, size_t max_offset) {
+    m_sections.clear();
 
-    for (std::uint16_t i = 0; i < file_header_.NumberOfSections; i++) {
+    for (uint16_t i = 0; i < m_file_header.NumberOfSections; i++) {
         if (i >= MAX_SECTIONS) {
             add_warning("Too many sections");
             break;
         }
 
         auto section_offset = offset + 40 * i;
-        if (section_offset + 40 > data_size_) break;
+        if (section_offset + 40 > m_data_size) break;
 
-        auto section_data = std::span<const std::uint8_t>(
-            data_.data() + section_offset,
-            std::min<std::size_t>(40, data_size_ - section_offset));
+        auto section_data = std::span<const uint8_t>(
+            m_data.data() + section_offset,
+            std::min<size_t>(40, m_data_size - section_offset));
 
         if (count_zeroes(section_data) == 40) {
             add_warning("Invalid section " + std::to_string(i) + ". Contents are null-bytes.");
@@ -210,11 +210,11 @@ void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
         auto section = SectionHeader::parse(section_data, 0);
 
         auto section_alignment = is_pe32_plus() ?
-            optional_header_64_.SectionAlignment : optional_header_32_.SectionAlignment;
+            m_optional_header_64.SectionAlignment : m_optional_header_32.SectionAlignment;
         auto file_alignment = is_pe32_plus() ?
-            optional_header_64_.FileAlignment : optional_header_32_.FileAlignment;
+            m_optional_header_64.FileAlignment : m_optional_header_32.FileAlignment;
 
-        if (static_cast<std::uint64_t>(section.SizeOfRawData) + section.PointerToRawData > data_size_) {
+        if (static_cast<uint64_t>(section.SizeOfRawData) + section.PointerToRawData > m_data_size) {
             add_warning("Error parsing section " + std::to_string(i) + ". SizeOfRawData is larger than file.");
         }
 
@@ -226,17 +226,17 @@ void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
             add_warning("Suspicious value found parsing section " + std::to_string(i) + ". VirtualAddress is beyond limit.");
         }
 
-        sections_.push_back(section);
+        m_sections.push_back(section);
     }
 
-    std::sort(sections_.begin(), sections_.end(),
+    std::sort(m_sections.begin(), m_sections.end(),
         [](const SectionHeader& a, const SectionHeader& b) {
             return a.VirtualAddress < b.VirtualAddress;
         });
 
-    for (auto& section : sections_) {
-        if ((section.Characteristics & static_cast<std::uint32_t>(SectionCharacteristic::MEM_WRITE)) &&
-            (section.Characteristics & static_cast<std::uint32_t>(SectionCharacteristic::MEM_EXECUTE))) {
+    for (auto& section : m_sections) {
+        if ((section.Characteristics & static_cast<uint32_t>(SectionCharacteristic::MEM_WRITE)) &&
+            (section.Characteristics & static_cast<uint32_t>(SectionCharacteristic::MEM_EXECUTE))) {
             std::string name(section.Name, strnlen(section.Name, 8));
             if (name == "PAGE" && is_driver()) {
                 continue;
@@ -246,53 +246,53 @@ void PE::parse_sections(std::size_t offset, std::size_t max_offset) {
     }
 }
 
-const SectionHeader* PE::find_section_for_rva(std::uint32_t rva) const {
-    for (auto& s : sections_) {
+const SectionHeader* PE::find_section_for_rva(uint32_t rva) const {
+    for (auto& s : m_sections) {
         if (s.VirtualAddress <= rva &&
-            rva < s.VirtualAddress + static_cast<std::uint32_t>(std::max(s.SizeOfRawData, s.VirtualSize))) {
+            rva < s.VirtualAddress + static_cast<uint32_t>(std::max(s.SizeOfRawData, s.VirtualSize))) {
             return &s;
         }
     }
     return nullptr;
 }
 
-const SectionHeader* PE::find_section_for_offset(std::uint32_t offset) const {
-    for (auto& s : sections_) {
+const SectionHeader* PE::find_section_for_offset(uint32_t offset) const {
+    for (auto& s : m_sections) {
         if (s.PointerToRawData <= offset &&
-            offset < static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData) {
+            offset < static_cast<uint64_t>(s.PointerToRawData) + s.SizeOfRawData) {
             return &s;
         }
     }
     return nullptr;
 }
 
-std::uint32_t PE::get_offset_from_rva(std::uint32_t rva) const {
-    for (auto& s : sections_) {
+uint32_t PE::get_offset_from_rva(uint32_t rva) const {
+    for (auto& s : m_sections) {
         if (s.VirtualAddress <= rva &&
-            rva < s.VirtualAddress + static_cast<std::uint32_t>(std::max(s.SizeOfRawData, s.VirtualSize))) {
+            rva < s.VirtualAddress + static_cast<uint32_t>(std::max(s.SizeOfRawData, s.VirtualSize))) {
             return s.PointerToRawData + (rva - s.VirtualAddress);
         }
     }
     return rva;
 }
 
-std::uint32_t PE::get_rva_from_offset(std::uint32_t offset) const {
-    for (auto& s : sections_) {
-        if (s.PointerToRawData <= offset && offset < static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData) {
+uint32_t PE::get_rva_from_offset(uint32_t offset) const {
+    for (auto& s : m_sections) {
+        if (s.PointerToRawData <= offset && offset < static_cast<uint64_t>(s.PointerToRawData) + s.SizeOfRawData) {
             return s.VirtualAddress + (offset - s.PointerToRawData);
         }
     }
     return offset;
 }
 
-std::span<const std::uint8_t> PE::get_data_span(std::uint32_t rva, std::uint32_t length) const {
-    if (rva + length > data_size_ || rva + length < rva) {
+std::span<const uint8_t> PE::get_data_span(uint32_t rva, uint32_t length) const {
+    if (rva + length > m_data_size || rva + length < rva) {
         throw PEFormatError("RVA out of bounds");
     }
-    return std::span<const std::uint8_t>(data_.data() + rva, length);
+    return std::span<const uint8_t>(m_data.data() + rva, length);
 }
 
-std::span<const std::uint8_t> PE::get_data(std::uint32_t rva, std::optional<std::uint32_t> length) const {
+std::span<const uint8_t> PE::get_data(uint32_t rva, std::optional<uint32_t> length) const {
     auto section = find_section_for_rva(rva);
     if (!section) {
         if (!length) {
@@ -302,55 +302,55 @@ std::span<const std::uint8_t> PE::get_data(std::uint32_t rva, std::optional<std:
     }
 
     auto file_offset = get_offset_from_rva(rva);
-    auto section_end = static_cast<std::uint64_t>(section->PointerToRawData) + section->SizeOfRawData;
+    auto section_end = static_cast<uint64_t>(section->PointerToRawData) + section->SizeOfRawData;
 
     if (length) {
         auto end = file_offset + *length;
-        if (end > data_size_) end = data_size_;
-        if (file_offset >= data_size_) throw PEFormatError("Offset out of bounds");
-        return std::span<const std::uint8_t>(data_.data() + file_offset, end - file_offset);
+        if (end > m_data_size) end = m_data_size;
+        if (file_offset >= m_data_size) throw PEFormatError("Offset out of bounds");
+        return std::span<const uint8_t>(m_data.data() + file_offset, end - file_offset);
     }
 
-    auto max_len = std::min(static_cast<std::uint32_t>(data_size_), static_cast<std::uint32_t>(section_end)) - file_offset;
-    if (file_offset >= data_size_ || max_len > data_size_) throw PEFormatError("Offset out of bounds");
-    return std::span<const std::uint8_t>(data_.data() + file_offset, max_len);
+    auto max_len = std::min(static_cast<uint32_t>(m_data_size), static_cast<uint32_t>(section_end)) - file_offset;
+    if (file_offset >= m_data_size || max_len > m_data_size) throw PEFormatError("Offset out of bounds");
+    return std::span<const uint8_t>(m_data.data() + file_offset, max_len);
 }
 
-std::vector<std::uint8_t> PE::get_data_copy(std::uint32_t rva, std::optional<std::uint32_t> length) const {
+std::vector<uint8_t> PE::get_data_copy(uint32_t rva, std::optional<uint32_t> length) const {
     auto span = get_data(rva, length);
     return {span.begin(), span.end()};
 }
 
-std::optional<std::reference_wrapper<const SectionHeader>> PE::get_section_by_rva(std::uint32_t rva) const {
+std::optional<std::reference_wrapper<const SectionHeader>> PE::get_section_by_rva(uint32_t rva) const {
     auto section = find_section_for_rva(rva);
     if (!section) return std::nullopt;
     return std::cref(*section);
 }
 
-std::optional<std::reference_wrapper<const SectionHeader>> PE::get_section_by_offset(std::uint32_t offset) const {
+std::optional<std::reference_wrapper<const SectionHeader>> PE::get_section_by_offset(uint32_t offset) const {
     auto section = find_section_for_offset(offset);
     if (!section) return std::nullopt;
     return std::cref(*section);
 }
 
-std::string PE::get_string_at_rva(std::uint32_t rva, std::size_t max_length) const {
+std::string PE::get_string_at_rva(uint32_t rva, size_t max_length) const {
     std::string result;
     auto base_offset = get_offset_from_rva(rva);
-    if (base_offset >= data_size_) return result;
-    for (std::size_t i = 0; i < max_length && base_offset + i < data_size_; i++) {
-        char c = static_cast<char>(data_[base_offset + i]);
+    if (base_offset >= m_data_size) return result;
+    for (size_t i = 0; i < max_length && base_offset + i < m_data_size; i++) {
+        char c = static_cast<char>(m_data[base_offset + i]);
         if (c == '\0') break;
         result += c;
     }
     return result;
 }
 
-std::string PE::get_string_u_at_rva(std::uint32_t rva, std::size_t max_length) const {
+std::string PE::get_string_u_at_rva(uint32_t rva, size_t max_length) const {
     std::string result;
     auto offset = get_offset_from_rva(rva);
-    for (std::size_t i = 0; i < max_length * 2 && offset + i + 1 < data_size_; i += 2) {
-        char c1 = static_cast<char>(data_[offset + i]);
-        char c2 = static_cast<char>(data_[offset + i + 1]);
+    for (size_t i = 0; i < max_length * 2 && offset + i + 1 < m_data_size; i += 2) {
+        char c1 = static_cast<char>(m_data[offset + i]);
+        char c2 = static_cast<char>(m_data[offset + i + 1]);
         if (c1 == '\0' && c2 == '\0') break;
         if (c2 == '\0') {
             result += c1;
@@ -361,86 +361,86 @@ std::string PE::get_string_u_at_rva(std::uint32_t rva, std::size_t max_length) c
     return result;
 }
 
-std::vector<std::uint8_t> PE::get_memory_mapped_image(std::uint32_t max_virtual_address) const {
+std::vector<uint8_t> PE::get_memory_mapped_image(uint32_t max_virtual_address) const {
     auto size_of_image = is_pe32_plus() ?
-        optional_header_64_.SizeOfImage : optional_header_32_.SizeOfImage;
+        m_optional_header_64.SizeOfImage : m_optional_header_32.SizeOfImage;
     auto image_size = std::min(size_of_image, max_virtual_address);
-    std::vector<std::uint8_t> mapped(image_size, 0);
+    std::vector<uint8_t> mapped(image_size, 0);
 
     auto headers_size = is_pe32_plus() ?
-        optional_header_64_.SizeOfHeaders : optional_header_32_.SizeOfHeaders;
-    auto copy_size = std::min(static_cast<std::size_t>(headers_size), data_size_);
-    std::memcpy(mapped.data(), data_.data(), copy_size);
+        m_optional_header_64.SizeOfHeaders : m_optional_header_32.SizeOfHeaders;
+    auto copy_size = std::min(static_cast<size_t>(headers_size), m_data_size);
+    std::memcpy(mapped.data(), m_data.data(), copy_size);
 
-    for (auto& section : sections_) {
+    for (auto& section : m_sections) {
         if (section.VirtualAddress >= max_virtual_address) continue;
         if (section.VirtualAddress + section.SizeOfRawData > max_virtual_address) continue;
-        if (static_cast<std::uint64_t>(section.PointerToRawData) + section.SizeOfRawData > data_size_) continue;
-        if (static_cast<std::uint64_t>(section.VirtualAddress) + section.SizeOfRawData > image_size) continue;
+        if (static_cast<uint64_t>(section.PointerToRawData) + section.SizeOfRawData > m_data_size) continue;
+        if (static_cast<uint64_t>(section.VirtualAddress) + section.SizeOfRawData > image_size) continue;
         std::memcpy(mapped.data() + section.VirtualAddress,
-                    data_.data() + section.PointerToRawData,
+                    m_data.data() + section.PointerToRawData,
                     section.SizeOfRawData);
     }
 
     return mapped;
 }
 
-std::span<const std::uint8_t> PE::get_overlay() const {
-    if (sections_.empty()) return {};
-    std::uint32_t max_end = 0;
-    for (auto& s : sections_) {
-        auto end = static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
-        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<std::uint32_t>(end);
+std::span<const uint8_t> PE::get_overlay() const {
+    if (m_sections.empty()) return {};
+    uint32_t max_end = 0;
+    for (auto& s : m_sections) {
+        auto end = static_cast<uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
+        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<uint32_t>(end);
     }
-    if (max_end >= data_size_) return {};
-    return std::span<const std::uint8_t>(data_.data() + max_end, data_size_ - max_end);
+    if (max_end >= m_data_size) return {};
+    return std::span<const uint8_t>(m_data.data() + max_end, m_data_size - max_end);
 }
 
-std::optional<std::uint32_t> PE::get_overlay_data_start_offset() const {
-    if (sections_.empty()) return std::nullopt;
-    std::uint32_t max_end = 0;
-    for (auto& s : sections_) {
-        auto end = static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
-        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<std::uint32_t>(end);
+std::optional<uint32_t> PE::get_overlay_data_start_offset() const {
+    if (m_sections.empty()) return std::nullopt;
+    uint32_t max_end = 0;
+    for (auto& s : m_sections) {
+        auto end = static_cast<uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
+        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<uint32_t>(end);
     }
-    if (max_end >= data_size_) return std::nullopt;
+    if (max_end >= m_data_size) return std::nullopt;
     return max_end;
 }
 
-std::vector<std::uint8_t> PE::trim() const {
-    if (sections_.empty()) {
-        return {data_.begin(), data_.end()};
+std::vector<uint8_t> PE::trim() const {
+    if (m_sections.empty()) {
+        return {m_data.begin(), m_data.end()};
     }
-    std::uint32_t max_end = 0;
-    for (auto& s : sections_) {
-        auto end = static_cast<std::uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
-        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<std::uint32_t>(end);
+    uint32_t max_end = 0;
+    for (auto& s : m_sections) {
+        auto end = static_cast<uint64_t>(s.PointerToRawData) + s.SizeOfRawData;
+        if (end > max_end && end <= UINT32_MAX) max_end = static_cast<uint32_t>(end);
     }
-    return {data_.begin(), data_.begin() + std::min(max_end, static_cast<std::uint32_t>(data_size_))};
+    return {m_data.begin(), m_data.begin() + std::min(max_end, static_cast<uint32_t>(m_data_size))};
 }
 
 bool PE::is_exe() const {
-    return (file_header_.Characteristics & static_cast<std::uint16_t>(ImageCharacteristic::EXECUTABLE_IMAGE)) != 0 &&
-           (file_header_.Characteristics & static_cast<std::uint16_t>(ImageCharacteristic::DLL)) == 0;
+    return (m_file_header.Characteristics & static_cast<uint16_t>(ImageCharacteristic::EXECUTABLE_IMAGE)) != 0 &&
+           (m_file_header.Characteristics & static_cast<uint16_t>(ImageCharacteristic::DLL)) == 0;
 }
 
 bool PE::is_dll() const {
-    return (file_header_.Characteristics & static_cast<std::uint16_t>(ImageCharacteristic::DLL)) != 0;
+    return (m_file_header.Characteristics & static_cast<uint16_t>(ImageCharacteristic::DLL)) != 0;
 }
 
 bool PE::is_driver() const {
-    auto sub = is_pe32_plus() ? optional_header_64_.Subsystem : optional_header_32_.Subsystem;
+    auto sub = is_pe32_plus() ? m_optional_header_64.Subsystem : m_optional_header_32.Subsystem;
     if (sub == 1) return true;
     if (sub == 10 || sub == 11 || sub == 12 || sub == 13) return true;
     return false;
 }
 
 bool PE::has_relocs() const {
-    return !relocations_.empty();
+    return !m_relocations.empty();
 }
 
 bool PE::has_dynamic_relocs() const {
-    if (load_config_data_ && load_config_data_->dynamic_value_reloc_table != 0) {
+    if (m_load_config_data && m_load_config_data->dynamic_value_reloc_table != 0) {
         return true;
     }
     return false;
@@ -448,21 +448,21 @@ bool PE::has_dynamic_relocs() const {
 
 bool PE::verify_checksum() const {
     return generate_checksum() == (is_pe32_plus() ?
-        optional_header_64_.CheckSum : optional_header_32_.CheckSum);
+        m_optional_header_64.CheckSum : m_optional_header_32.CheckSum);
 }
 
-std::uint32_t PE::generate_checksum() const {
-    std::uint64_t checksum = 0;
-    std::size_t size = data_size_;
-    auto ptr = data_.data();
+uint32_t PE::generate_checksum() const {
+    uint64_t checksum = 0;
+    size_t size = m_data_size;
+    auto ptr = m_data.data();
 
     // The checksum field itself must be treated as zero during computation.
     // It sits at NT headers offset + 24 (sig+COFF) + 64 (within optional header).
-    auto checksum_offset = static_cast<std::size_t>(dos_header_.e_lfanew) + 88;
+    auto checksum_offset = static_cast<size_t>(m_dos_header.e_lfanew) + 88;
     auto checksum_dword_idx = checksum_offset / 4;
 
-    for (std::size_t i = 0; i < size / 4; i++) {
-        std::uint32_t dword_val;
+    for (size_t i = 0; i < size / 4; i++) {
+        uint32_t dword_val;
         std::memcpy(&dword_val, ptr + i * 4, 4);
         if (i == checksum_dword_idx) dword_val = 0;
         checksum += dword_val;
@@ -472,9 +472,9 @@ std::uint32_t PE::generate_checksum() const {
     }
 
     ptr += (size / 4) * 4;
-    std::size_t remaining = size % 4;
+    size_t remaining = size % 4;
     if (remaining > 0) {
-        std::uint32_t dword_val = 0;
+        uint32_t dword_val = 0;
         std::memcpy(&dword_val, ptr, remaining);
         checksum += dword_val;
         if (checksum > 0xFFFFFFFF) {
@@ -482,121 +482,121 @@ std::uint32_t PE::generate_checksum() const {
         }
     }
 
-    checksum = static_cast<std::uint32_t>((checksum & 0xFFFF) + (checksum >> 16));
-    checksum = static_cast<std::uint32_t>(checksum + (checksum >> 16));
+    checksum = static_cast<uint32_t>((checksum & 0xFFFF) + (checksum >> 16));
+    checksum = static_cast<uint32_t>(checksum + (checksum >> 16));
     checksum &= 0xFFFF;
     checksum += size;
 
-    return static_cast<std::uint32_t>(checksum);
+    return static_cast<uint32_t>(checksum);
 }
 
-std::uint8_t PE::get_byte_at_rva(std::uint32_t rva) const {
+uint8_t PE::get_byte_at_rva(uint32_t rva) const {
     auto offset = get_offset_from_rva(rva);
-    if (offset >= data_size_) return 0;
-    return data_[offset];
+    if (offset >= m_data_size) return 0;
+    return m_data[offset];
 }
 
-std::uint16_t PE::get_word_at_rva(std::uint32_t rva) const {
+uint16_t PE::get_word_at_rva(uint32_t rva) const {
     auto offset = get_offset_from_rva(rva);
-    if (offset + 2 > data_size_) return 0;
-    std::uint16_t val;
-    std::memcpy(&val, data_.data() + offset, 2);
+    if (offset + 2 > m_data_size) return 0;
+    uint16_t val;
+    std::memcpy(&val, m_data.data() + offset, 2);
     return val;
 }
 
-std::uint32_t PE::get_dword_at_rva(std::uint32_t rva) const {
+uint32_t PE::get_dword_at_rva(uint32_t rva) const {
     auto offset = get_offset_from_rva(rva);
-    if (offset + 4 > data_size_) return 0;
-    std::uint32_t val;
-    std::memcpy(&val, data_.data() + offset, 4);
+    if (offset + 4 > m_data_size) return 0;
+    uint32_t val;
+    std::memcpy(&val, m_data.data() + offset, 4);
     return val;
 }
 
-std::uint64_t PE::get_qword_at_rva(std::uint32_t rva) const {
+uint64_t PE::get_qword_at_rva(uint32_t rva) const {
     auto offset = get_offset_from_rva(rva);
-    if (offset + 8 > data_size_) return 0;
-    std::uint64_t val;
-    std::memcpy(&val, data_.data() + offset, 8);
+    if (offset + 8 > m_data_size) return 0;
+    uint64_t val;
+    std::memcpy(&val, m_data.data() + offset, 8);
     return val;
 }
 
-std::uint8_t PE::get_byte_at_offset(std::uint32_t offset) const {
-    if (offset >= data_size_) return 0;
-    return data_[offset];
+uint8_t PE::get_byte_at_offset(uint32_t offset) const {
+    if (offset >= m_data_size) return 0;
+    return m_data[offset];
 }
 
-std::uint16_t PE::get_word_at_offset(std::uint32_t offset) const {
-    if (offset + 2 > data_size_) return 0;
-    std::uint16_t val;
-    std::memcpy(&val, data_.data() + offset, 2);
+uint16_t PE::get_word_at_offset(uint32_t offset) const {
+    if (offset + 2 > m_data_size) return 0;
+    uint16_t val;
+    std::memcpy(&val, m_data.data() + offset, 2);
     return val;
 }
 
-std::uint32_t PE::get_dword_at_offset(std::uint32_t offset) const {
-    if (offset + 4 > data_size_) return 0;
-    std::uint32_t val;
-    std::memcpy(&val, data_.data() + offset, 4);
+uint32_t PE::get_dword_at_offset(uint32_t offset) const {
+    if (offset + 4 > m_data_size) return 0;
+    uint32_t val;
+    std::memcpy(&val, m_data.data() + offset, 4);
     return val;
 }
 
-std::uint64_t PE::get_qword_at_offset(std::uint32_t offset) const {
-    if (offset + 8 > data_size_) return 0;
-    std::uint64_t val;
-    std::memcpy(&val, data_.data() + offset, 8);
+uint64_t PE::get_qword_at_offset(uint32_t offset) const {
+    if (offset + 8 > m_data_size) return 0;
+    uint64_t val;
+    std::memcpy(&val, m_data.data() + offset, 8);
     return val;
 }
 
-bool PE::set_bytes_at_rva(std::uint32_t rva, std::span<const std::uint8_t> data) {
+bool PE::set_bytes_at_rva(uint32_t rva, std::span<const uint8_t> data) {
     auto offset = get_offset_from_rva(rva);
-    if (offset + data.size() > data_size_) return false;
-    std::memcpy(data_.data() + offset, data.data(), data.size());
+    if (offset + data.size() > m_data_size) return false;
+    std::memcpy(m_data.data() + offset, data.data(), data.size());
     return true;
 }
 
-bool PE::set_bytes_at_offset(std::uint32_t offset, std::span<const std::uint8_t> data) {
-    if (offset + data.size() > data_size_) return false;
-    std::memcpy(data_.data() + offset, data.data(), data.size());
+bool PE::set_bytes_at_offset(uint32_t offset, std::span<const uint8_t> data) {
+    if (offset + data.size() > m_data_size) return false;
+    std::memcpy(m_data.data() + offset, data.data(), data.size());
     return true;
 }
 
-bool PE::set_word_at_rva(std::uint32_t rva, std::uint16_t word) {
-    return set_bytes_at_rva(rva, std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t*>(&word), 2));
+bool PE::set_word_at_rva(uint32_t rva, uint16_t word) {
+    return set_bytes_at_rva(rva, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&word), 2));
 }
 
-bool PE::set_dword_at_rva(std::uint32_t rva, std::uint32_t dword) {
-    return set_bytes_at_rva(rva, std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t*>(&dword), 4));
+bool PE::set_dword_at_rva(uint32_t rva, uint32_t dword) {
+    return set_bytes_at_rva(rva, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&dword), 4));
 }
 
-bool PE::set_qword_at_rva(std::uint32_t rva, std::uint64_t qword) {
-    return set_bytes_at_rva(rva, std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t*>(&qword), 8));
+bool PE::set_qword_at_rva(uint32_t rva, uint64_t qword) {
+    return set_bytes_at_rva(rva, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&qword), 8));
 }
 
-bool PE::set_word_at_offset(std::uint32_t offset, std::uint16_t word) {
-    return set_bytes_at_offset(offset, std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t*>(&word), 2));
+bool PE::set_word_at_offset(uint32_t offset, uint16_t word) {
+    return set_bytes_at_offset(offset, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&word), 2));
 }
 
-bool PE::set_dword_at_offset(std::uint32_t offset, std::uint32_t dword) {
-    return set_bytes_at_offset(offset, std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t*>(&dword), 4));
+bool PE::set_dword_at_offset(uint32_t offset, uint32_t dword) {
+    return set_bytes_at_offset(offset, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&dword), 4));
 }
 
-bool PE::set_qword_at_offset(std::uint32_t offset, std::uint64_t qword) {
-    return set_bytes_at_offset(offset, std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t*>(&qword), 8));
+bool PE::set_qword_at_offset(uint32_t offset, uint64_t qword) {
+    return set_bytes_at_offset(offset, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&qword), 8));
 }
 
-std::vector<std::uint8_t> PE::write() const {
-    return data_;
+std::vector<uint8_t> PE::write() const {
+    return m_data;
 }
 
 bool PE::write(const std::string& filename) const {
     std::ofstream file(filename, std::ios::binary);
     if (!file.is_open()) return false;
-    file.write(reinterpret_cast<const char*>(data_.data()), data_size_);
+    file.write(reinterpret_cast<const char*>(m_data.data()), m_data_size);
     return file.good();
 }
 
@@ -605,66 +605,66 @@ bool PE::write(const std::string& filename) const {
 // ============================================================================
 
 void PE::parse_data_directories() {
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::EXPORT) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::EXPORT)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::EXPORT)];
-        exports_ = parse_export_directory(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::EXPORT) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::EXPORT)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::EXPORT)];
+        m_exports = parse_export_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::IMPORT) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::IMPORT)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::IMPORT)];
-        imports_ = parse_import_directory(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::IMPORT) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::IMPORT)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::IMPORT)];
+        m_imports = parse_import_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::BASERELOC) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::BASERELOC)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::BASERELOC)];
-        relocations_ = parse_relocations_directory(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BASERELOC) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::BASERELOC)];
+        m_relocations = parse_relocations_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::DEBUG) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::DEBUG)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::DEBUG)];
-        debug_data_ = parse_debug_directory(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::DEBUG) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::DEBUG)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::DEBUG)];
+        m_debug_data = parse_debug_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::TLS) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::TLS)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::TLS)];
-        tls_data_ = parse_directory_tls(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::TLS) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::TLS)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::TLS)];
+        m_tls_data = parse_directory_tls(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::EXCEPTION) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::EXCEPTION)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::EXCEPTION)];
-        exceptions_ = parse_exceptions_directory(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::EXCEPTION) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::EXCEPTION)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::EXCEPTION)];
+        m_exceptions = parse_exceptions_directory(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::LOAD_CONFIG) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::LOAD_CONFIG)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::LOAD_CONFIG)];
-        load_config_data_ = parse_directory_load_config(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::LOAD_CONFIG) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::LOAD_CONFIG)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::LOAD_CONFIG)];
+        m_load_config_data = parse_directory_load_config(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::BOUND_IMPORT) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::BOUND_IMPORT)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::BOUND_IMPORT)];
-        bound_imports_ = parse_directory_bound_imports(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::BOUND_IMPORT) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::BOUND_IMPORT)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::BOUND_IMPORT)];
+        m_bound_imports = parse_directory_bound_imports(dir.VirtualAddress, dir.Size);
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::RESOURCE) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::RESOURCE)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::RESOURCE)];
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::RESOURCE) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::RESOURCE)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::RESOURCE)];
         auto result = parse_resources_directory(dir.VirtualAddress, dir.Size);
         if (result) {
-            resources_.push_back(*result);
+            m_resources.push_back(*result);
 
             for (auto& entry : result->entries) {
                 if (entry.id == 16 && entry.directory) {
                     for (auto& sub : entry.directory->entries) {
                         if (sub.data_entry) {
-                            version_info_ = parse_version_information(sub.data_entry->data_rva);
+                            m_version_info = parse_version_information(sub.data_entry->data_rva);
                             break;
                         }
                     }
@@ -674,21 +674,21 @@ void PE::parse_data_directories() {
         }
     }
 
-    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::DELAY_IMPORT) &&
-        data_directories_[static_cast<std::size_t>(DirectoryEntry::DELAY_IMPORT)].VirtualAddress) {
-        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::DELAY_IMPORT)];
-        delay_imports_ = parse_delay_import_directory(dir.VirtualAddress, dir.Size);
+    if (m_data_directories.size() > static_cast<size_t>(DirectoryEntry::DELAY_IMPORT) &&
+        m_data_directories[static_cast<size_t>(DirectoryEntry::DELAY_IMPORT)].VirtualAddress) {
+        auto& dir = m_data_directories[static_cast<size_t>(DirectoryEntry::DELAY_IMPORT)];
+        m_delay_imports = parse_delay_import_directory(dir.VirtualAddress, dir.Size);
     }
 }
 
-std::vector<ImportDescData> PE::parse_import_directory(std::uint32_t rva, std::uint32_t size) {
+std::vector<ImportDescData> PE::parse_import_directory(uint32_t rva, uint32_t size) {
     std::vector<ImportDescData> import_descs;
-    std::size_t desc_size = 20;
+    size_t desc_size = 20;
 
     while (true) {
-        if (rva + desc_size > data_size_) break;
+        if (rva + desc_size > m_data_size) break;
 
-        auto import_desc = ImageImportDescriptor::parse(data_, rva);
+        auto import_desc = ImageImportDescriptor::parse(m_data, rva);
         if (import_desc.OriginalFirstThunk == 0 && import_desc.FirstThunk == 0 &&
             import_desc.Name == 0) {
             break;
@@ -697,7 +697,7 @@ std::vector<ImportDescData> PE::parse_import_directory(std::uint32_t rva, std::u
         rva += desc_size;
 
         auto file_offset = get_offset_from_rva(rva);
-        std::uint32_t max_len = static_cast<std::uint32_t>(data_size_) - file_offset;
+        uint32_t max_len = static_cast<uint32_t>(m_data_size) - file_offset;
         if (import_desc.OriginalFirstThunk != 0 && rva > import_desc.OriginalFirstThunk) {
             max_len = std::max(max_len, rva - import_desc.OriginalFirstThunk);
         }
@@ -729,7 +729,7 @@ std::vector<ImportDescData> PE::parse_import_directory(std::uint32_t rva, std::u
                     }
                 }
             }
-            import_descs.push_back({dll, import_data, static_cast<std::uint32_t>(rva - desc_size)});
+            import_descs.push_back({dll, import_data, static_cast<uint32_t>(rva - desc_size)});
         }
     }
 
@@ -737,16 +737,16 @@ std::vector<ImportDescData> PE::parse_import_directory(std::uint32_t rva, std::u
 }
 
 std::vector<ImportData> PE::parse_imports(
-    std::uint32_t original_first_thunk,
-    std::uint32_t first_thunk,
-    std::uint32_t forwarder_chain,
-    std::uint32_t max_length) {
+    uint32_t original_first_thunk,
+    uint32_t first_thunk,
+    uint32_t forwarder_chain,
+    uint32_t max_length) {
 
     std::vector<ImportData> imported_symbols;
 
-    std::uint64_t ordinal_flag;
-    std::size_t entry_size;
-    if (pe_type_ == OPTIONAL_HEADER_MAGIC_PE) {
+    uint64_t ordinal_flag;
+    size_t entry_size;
+    if (m_pe_type == OPTIONAL_HEADER_MAGIC_PE) {
         ordinal_flag = IMAGE_ORDINAL_FLAG;
         entry_size = 4;
     } else {
@@ -754,46 +754,46 @@ std::vector<ImportData> PE::parse_imports(
         entry_size = 8;
     }
 
-    std::uint32_t ilt_rva = original_first_thunk;
-    std::uint32_t iat_rva = first_thunk;
+    uint32_t ilt_rva = original_first_thunk;
+    uint32_t iat_rva = first_thunk;
 
-    std::uint32_t start_rva = ilt_rva;
-    std::size_t num_invalid = 0;
+    uint32_t start_rva = ilt_rva;
+    size_t num_invalid = 0;
 
     while (ilt_rva != 0 || iat_rva != 0) {
-        std::uint32_t current_rva = ilt_rva ? ilt_rva : iat_rva;
+        uint32_t current_rva = ilt_rva ? ilt_rva : iat_rva;
 
         if (max_length > 0 && current_rva >= start_rva + max_length) break;
 
-        if (current_rva + entry_size > data_size_) break;
+        if (current_rva + entry_size > m_data_size) break;
 
-        std::uint64_t address_of_data = 0;
+        uint64_t address_of_data = 0;
         auto offset = get_offset_from_rva(current_rva);
         if (entry_size == 4) {
-            std::uint32_t val;
-            std::memcpy(&val, data_.data() + offset, 4);
+            uint32_t val;
+            std::memcpy(&val, m_data.data() + offset, 4);
             address_of_data = val;
         } else {
-            std::memcpy(&address_of_data, data_.data() + offset, 8);
+            std::memcpy(&address_of_data, m_data.data() + offset, 8);
         }
 
         if (address_of_data == 0) break;
 
-        std::uint16_t imp_ord = 0;
-        std::uint16_t imp_hint = 0;
+        uint16_t imp_ord = 0;
+        uint16_t imp_hint = 0;
         std::string imp_name;
         bool import_by_ordinal = false;
-        std::uint32_t name_offset = 0;
+        uint32_t name_offset = 0;
 
         if (address_of_data & ordinal_flag) {
             import_by_ordinal = true;
-            imp_ord = static_cast<std::uint16_t>(address_of_data & 0xFFFF);
+            imp_ord = static_cast<uint16_t>(address_of_data & 0xFFFF);
         } else {
-            if (address_of_data + 2 < data_size_) {
-                auto name_rva = static_cast<std::uint32_t>(address_of_data);
+            if (address_of_data + 2 < m_data_size) {
+                auto name_rva = static_cast<uint32_t>(address_of_data);
                 auto hint_offset = get_offset_from_rva(name_rva);
-                if (hint_offset + 2 <= data_size_) {
-                    std::memcpy(&imp_hint, data_.data() + hint_offset, 2);
+                if (hint_offset + 2 <= m_data_size) {
+                    std::memcpy(&imp_hint, m_data.data() + hint_offset, 2);
                 }
                 imp_name = get_string_at_rva(name_rva + 2, MAX_IMPORT_NAME_LENGTH);
                 name_offset = get_offset_from_rva(name_rva + 2);
@@ -808,11 +808,11 @@ std::vector<ImportData> PE::parse_imports(
             continue;
         }
 
-        auto thunk_offset = static_cast<std::uint32_t>(get_offset_from_rva(current_rva));
+        auto thunk_offset = static_cast<uint32_t>(get_offset_from_rva(current_rva));
         auto thunk_rva = current_rva;
 
-        std::uint64_t imp_address = current_rva +
-            (is_pe32_plus() ? optional_header_64_.ImageBase : optional_header_32_.ImageBase);
+        uint64_t imp_address = current_rva +
+            (is_pe32_plus() ? m_optional_header_64.ImageBase : m_optional_header_32.ImageBase);
 
         ImportData imp;
         imp.ordinal = imp_ord;
@@ -834,17 +834,17 @@ std::vector<ImportData> PE::parse_imports(
     return imported_symbols;
 }
 
-std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::uint32_t size) {
-    if (rva + 40 > data_size_) return std::nullopt;
+std::optional<ExportDirData> PE::parse_export_directory(uint32_t rva, uint32_t size) {
+    if (rva + 40 > m_data_size) return std::nullopt;
 
-    auto export_dir = ImageExportDirectory::parse(data_, rva);
+    auto export_dir = ImageExportDirectory::parse(m_data, rva);
     if (export_dir.NumberOfFunctions == 0 && export_dir.NumberOfNames == 0) {
         return std::nullopt;
     }
 
-    auto length_until_eof = [this](std::uint32_t r) -> std::uint32_t {
+    auto length_until_eof = [this](uint32_t r) -> uint32_t {
         auto off = get_offset_from_rva(r);
-        return static_cast<std::uint32_t>(data_size_) - off;
+        return static_cast<uint32_t>(m_data_size) - off;
     };
 
     auto addr_of_names = get_offset_from_rva(export_dir.AddressOfNames);
@@ -853,15 +853,15 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
 
     std::vector<ExportData> exports;
 
-    for (std::uint32_t i = 0; i < std::min(export_dir.NumberOfNames,
+    for (uint32_t i = 0; i < std::min(export_dir.NumberOfNames,
             length_until_eof(export_dir.AddressOfNames) / 4); i++) {
-        if (addr_of_name_ordinals + i * 2 + 2 > data_size_) break;
-        std::uint16_t symbol_ordinal;
-        std::memcpy(&symbol_ordinal, data_.data() + addr_of_name_ordinals + i * 2, 2);
+        if (addr_of_name_ordinals + i * 2 + 2 > m_data_size) break;
+        uint16_t symbol_ordinal;
+        std::memcpy(&symbol_ordinal, m_data.data() + addr_of_name_ordinals + i * 2, 2);
 
-        std::uint32_t symbol_address = 0;
-        if (addr_of_functions + symbol_ordinal * 4 + 4 <= data_size_) {
-            std::memcpy(&symbol_address, data_.data() + addr_of_functions + symbol_ordinal * 4, 4);
+        uint32_t symbol_address = 0;
+        if (addr_of_functions + symbol_ordinal * 4 + 4 <= m_data_size) {
+            std::memcpy(&symbol_address, m_data.data() + addr_of_functions + symbol_ordinal * 4, 4);
         }
 
         if (symbol_address == 0) continue;
@@ -871,9 +871,9 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
             forwarder = get_string_at_rva(symbol_address);
         }
 
-        std::uint32_t symbol_name_rva = 0;
-        if (addr_of_names + i * 4 + 4 <= data_size_) {
-            std::memcpy(&symbol_name_rva, data_.data() + addr_of_names + i * 4, 4);
+        uint32_t symbol_name_rva = 0;
+        if (addr_of_names + i * 4 + 4 <= m_data_size) {
+            std::memcpy(&symbol_name_rva, m_data.data() + addr_of_names + i * 4, 4);
         }
 
         std::string symbol_name;
@@ -895,16 +895,16 @@ std::optional<ExportDirData> PE::parse_export_directory(std::uint32_t rva, std::
     return ExportDirData{0, exports, get_string_at_rva(export_dir.Name)};
 }
 
-std::vector<DebugData> PE::parse_debug_directory(std::uint32_t rva, std::uint32_t size) {
+std::vector<DebugData> PE::parse_debug_directory(uint32_t rva, uint32_t size) {
     std::vector<DebugData> debug;
-    std::size_t dbg_size = 28;
-    std::uint32_t count = static_cast<std::uint32_t>(size / dbg_size);
+    size_t dbg_size = 28;
+    uint32_t count = static_cast<uint32_t>(size / dbg_size);
 
-    for (std::uint32_t idx = 0; idx < count; idx++) {
+    for (uint32_t idx = 0; idx < count; idx++) {
         auto dbg_rva = rva + dbg_size * idx;
-        if (dbg_rva + dbg_size > data_size_) break;
+        if (dbg_rva + dbg_size > m_data_size) break;
 
-        auto dbg = ImageDebugDirectory::parse(data_, dbg_rva);
+        auto dbg = ImageDebugDirectory::parse(m_data, dbg_rva);
 
         DebugData data;
         data.type = dbg.Type;
@@ -917,34 +917,34 @@ std::vector<DebugData> PE::parse_debug_directory(std::uint32_t rva, std::uint32_
     return debug;
 }
 
-std::vector<BaseRelocationData> PE::parse_relocations_directory(std::uint32_t rva, std::uint32_t size) {
+std::vector<BaseRelocationData> PE::parse_relocations_directory(uint32_t rva, uint32_t size) {
     std::vector<BaseRelocationData> relocations;
-    std::uint32_t end = rva + size;
+    uint32_t end = rva + size;
 
     while (rva < end) {
-        if (rva + 8 > data_size_) break;
+        if (rva + 8 > m_data_size) break;
 
-        auto rlc = ImageBaseRelocation::parse(data_, rva);
+        auto rlc = ImageBaseRelocation::parse(m_data, rva);
         if (rlc.VirtualAddress == 0 && rlc.SizeOfBlock == 0) break;
-        if (rlc.SizeOfBlock < 8 || rlc.SizeOfBlock > data_size_) break;
+        if (rlc.SizeOfBlock < 8 || rlc.SizeOfBlock > m_data_size) break;
 
-        std::uint32_t base_rva = rlc.VirtualAddress;
-        std::uint32_t entries_size = rlc.SizeOfBlock - 8;
-        std::uint32_t entry_rva = rva + 8;
+        uint32_t base_rva = rlc.VirtualAddress;
+        uint32_t entries_size = rlc.SizeOfBlock - 8;
+        uint32_t entry_rva = rva + 8;
 
         BaseRelocationData base_reloc;
         base_reloc.struct_offset = rva;
 
-        std::set<std::pair<std::uint32_t, std::uint32_t>> seen;
-        for (std::uint32_t i = 0; i < entries_size / 2; i++) {
+        std::set<std::pair<uint32_t, uint32_t>> seen;
+        for (uint32_t i = 0; i < entries_size / 2; i++) {
             auto entry_offset = get_offset_from_rva(entry_rva + i * 2);
-            if (entry_offset + 2 > data_size_) break;
+            if (entry_offset + 2 > m_data_size) break;
 
-            std::uint16_t word;
-            std::memcpy(&word, data_.data() + entry_offset, 2);
+            uint16_t word;
+            std::memcpy(&word, m_data.data() + entry_offset, 2);
 
-            std::uint32_t reloc_type = word >> 12;
-            std::uint32_t reloc_offset = word & 0x0FFF;
+            uint32_t reloc_type = word >> 12;
+            uint32_t reloc_offset = word & 0x0FFF;
 
             auto key = std::make_pair(reloc_offset, reloc_type);
             if (seen.count(key)) continue;
@@ -966,20 +966,20 @@ std::vector<BaseRelocationData> PE::parse_relocations_directory(std::uint32_t rv
     return relocations;
 }
 
-std::optional<TlsData> PE::parse_directory_tls(std::uint32_t rva, std::uint32_t size) {
+std::optional<TlsData> PE::parse_directory_tls(uint32_t rva, uint32_t size) {
     TlsData tls;
     tls.struct_offset = rva;
 
     if (is_pe32_plus()) {
-        if (rva + 40 > data_size_) return std::nullopt;
-        auto dir = ImageTlsDirectory64::parse(data_, rva);
+        if (rva + 40 > m_data_size) return std::nullopt;
+        auto dir = ImageTlsDirectory64::parse(m_data, rva);
         tls.start_address_of_raw_data = dir.StartAddressOfRawData;
         tls.end_address_of_raw_data = dir.EndAddressOfRawData;
         tls.address_of_index = dir.AddressOfIndex;
         tls.address_of_callbacks = dir.AddressOfCallBacks;
     } else {
-        if (rva + 24 > data_size_) return std::nullopt;
-        auto dir = ImageTlsDirectory32::parse(data_, rva);
+        if (rva + 24 > m_data_size) return std::nullopt;
+        auto dir = ImageTlsDirectory32::parse(m_data, rva);
         tls.start_address_of_raw_data = dir.StartAddressOfRawData;
         tls.end_address_of_raw_data = dir.EndAddressOfRawData;
         tls.address_of_index = dir.AddressOfIndex;
@@ -989,19 +989,19 @@ std::optional<TlsData> PE::parse_directory_tls(std::uint32_t rva, std::uint32_t 
     return tls;
 }
 
-std::vector<ExceptionsDirEntryData> PE::parse_exceptions_directory(std::uint32_t rva, std::uint32_t size) {
+std::vector<ExceptionsDirEntryData> PE::parse_exceptions_directory(uint32_t rva, uint32_t size) {
     std::vector<ExceptionsDirEntryData> result;
 
-    if (file_header_.Machine != static_cast<std::uint16_t>(MachineType::AMD64) &&
-        file_header_.Machine != static_cast<std::uint16_t>(MachineType::IA64)) {
+    if (m_file_header.Machine != static_cast<uint16_t>(MachineType::AMD64) &&
+        m_file_header.Machine != static_cast<uint16_t>(MachineType::IA64)) {
         return result;
     }
 
-    std::size_t rf_size = 12;
-    std::uint32_t end = rva + size;
+    size_t rf_size = 12;
+    uint32_t end = rva + size;
 
-    while (rva + rf_size <= end && rva + rf_size <= data_size_) {
-        auto rf = RuntimeFunction::parse(data_, rva);
+    while (rva + rf_size <= end && rva + rf_size <= m_data_size) {
+        auto rf = RuntimeFunction::parse(m_data, rva);
 
         ExceptionsDirEntryData entry;
         entry.struct_offset = rva;
@@ -1016,17 +1016,17 @@ std::vector<ExceptionsDirEntryData> PE::parse_exceptions_directory(std::uint32_t
     return result;
 }
 
-std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva, std::uint32_t size) {
-    if (rva + 4 > data_size_) return std::nullopt;
+std::optional<LoadConfigData> PE::parse_directory_load_config(uint32_t rva, uint32_t size) {
+    if (rva + 4 > m_data_size) return std::nullopt;
 
     LoadConfigData lc;
     lc.struct_offset = rva;
 
-    std::uint32_t lc_size = get_dword_at_rva(rva);
+    uint32_t lc_size = get_dword_at_rva(rva);
     lc.size = lc_size;
 
     auto offset = get_offset_from_rva(rva);
-    if (offset + lc_size > data_size_) return lc;
+    if (offset + lc_size > m_data_size) return lc;
 
     if (is_pe32_plus()) {
         if (lc_size >= 40) {
@@ -1212,18 +1212,18 @@ std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva,
     return lc;
 }
 
-std::vector<BoundImportDescData> PE::parse_directory_bound_imports(std::uint32_t rva, std::uint32_t size) {
+std::vector<BoundImportDescData> PE::parse_directory_bound_imports(uint32_t rva, uint32_t size) {
     std::vector<BoundImportDescData> result;
 
-    while (rva + 8 <= data_size_) {
-        std::uint32_t time_date_stamp;
-        std::uint16_t offset_module_name, number_of_module_forwarder_refs;
+    while (rva + 8 <= m_data_size) {
+        uint32_t time_date_stamp;
+        uint16_t offset_module_name, number_of_module_forwarder_refs;
         auto offset = get_offset_from_rva(rva);
-        if (offset + 8 > data_size_) break;
+        if (offset + 8 > m_data_size) break;
 
-        std::memcpy(&time_date_stamp, data_.data() + offset, 4);
-        std::memcpy(&offset_module_name, data_.data() + offset + 4, 2);
-        std::memcpy(&number_of_module_forwarder_refs, data_.data() + offset + 6, 2);
+        std::memcpy(&time_date_stamp, m_data.data() + offset, 4);
+        std::memcpy(&offset_module_name, m_data.data() + offset + 4, 2);
+        std::memcpy(&number_of_module_forwarder_refs, m_data.data() + offset + 6, 2);
 
         if (time_date_stamp == 0 && offset_module_name == 0 && number_of_module_forwarder_refs == 0) {
             break;
@@ -1237,7 +1237,7 @@ std::vector<BoundImportDescData> PE::parse_directory_bound_imports(std::uint32_t
         desc.name = get_string_at_rva(name_offset, 256);
 
         rva += 8;
-        for (std::uint16_t i = 0; i < number_of_module_forwarder_refs; i++) {
+        for (uint16_t i = 0; i < number_of_module_forwarder_refs; i++) {
             rva += 8;
         }
 
@@ -1247,16 +1247,16 @@ std::vector<BoundImportDescData> PE::parse_directory_bound_imports(std::uint32_t
     return result;
 }
 
-std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
+std::optional<VersionInfo> PE::parse_version_information(uint32_t rva) {
     auto start_offset = get_offset_from_rva(rva);
-    if (start_offset >= data_size_) return std::nullopt;
+    if (start_offset >= m_data_size) return std::nullopt;
 
     // Read VS_VERSIONINFO header: Length(u16), ValueLength(u16), Type(u16)
-    if (start_offset + 6 > data_size_) return std::nullopt;
-    std::uint16_t length = get_word_at_offset(start_offset);
-    std::uint16_t value_length = get_word_at_offset(start_offset + 2);
+    if (start_offset + 6 > m_data_size) return std::nullopt;
+    uint16_t length = get_word_at_offset(start_offset);
+    uint16_t value_length = get_word_at_offset(start_offset + 2);
 
-    if (length == 0 || length > data_size_ - start_offset) return std::nullopt;
+    if (length == 0 || length > m_data_size - start_offset) return std::nullopt;
 
     std::string key = get_string_u_at_rva(rva + 6);
     if (key != "VS_VERSION_INFO") return std::nullopt;
@@ -1265,16 +1265,16 @@ std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
     vi.name = key;
 
     // VS_FIXEDFILEINFO follows the key, dword-aligned
-    auto ffi_offset = dword_align(6 + 2 * (static_cast<std::uint32_t>(key.size()) + 1), rva);
+    auto ffi_offset = dword_align(6 + 2 * (static_cast<uint32_t>(key.size()) + 1), rva);
     auto ffi_abs = start_offset + ffi_offset;
 
     // Verify the magic signature for VS_FIXEDFILEINFO
-    if (ffi_abs + 4 <= data_size_) {
-        std::uint32_t signature = get_dword_at_offset(ffi_abs);
+    if (ffi_abs + 4 <= m_data_size) {
+        uint32_t signature = get_dword_at_offset(ffi_abs);
         if (signature == 0xFEEF04BD) {
             if (value_length >= 52 || value_length == 0) {
                 auto abs = ffi_abs;
-                if (abs + 56 <= data_size_) {
+                if (abs + 56 <= m_data_size) {
                     vi.signature = signature;
                     vi.struct_version = get_word_at_offset(abs + 8) | (get_word_at_offset(abs + 10) << 16);
                     vi.version_ms = get_dword_at_offset(abs + 12);
@@ -1297,36 +1297,36 @@ std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
     auto stringfileinfo_offset = dword_align(
         ffi_offset + (value_length ? value_length : 52), rva);
 
-    while (start_offset + stringfileinfo_offset + 6 <= data_size_) {
+    while (start_offset + stringfileinfo_offset + 6 <= m_data_size) {
         auto sf_offset = start_offset + stringfileinfo_offset;
-        std::uint16_t sf_length = get_word_at_offset(sf_offset);
-        if (sf_length == 0 || sf_offset + sf_length > data_size_) break;
+        uint16_t sf_length = get_word_at_offset(sf_offset);
+        if (sf_length == 0 || sf_offset + sf_length > m_data_size) break;
 
-        std::uint16_t sf_value_length = get_word_at_offset(sf_offset + 2);
+        uint16_t sf_value_length = get_word_at_offset(sf_offset + 2);
         std::string sf_key = get_string_u_at_rva(get_rva_from_offset(sf_offset + 6));
 
         if (sf_key.starts_with("StringFileInfo") && sf_value_length == 0) {
             auto st_offset = dword_align(
-                stringfileinfo_offset + 6 + 2 * (static_cast<std::uint32_t>(sf_key.size()) + 1), rva);
+                stringfileinfo_offset + 6 + 2 * (static_cast<uint32_t>(sf_key.size()) + 1), rva);
 
-            while (start_offset + st_offset + 6 <= data_size_ &&
+            while (start_offset + st_offset + 6 <= m_data_size &&
                    st_offset < stringfileinfo_offset + sf_length) {
                 auto st_abs = start_offset + st_offset;
-                std::uint16_t st_length = get_word_at_offset(st_abs);
-                if (st_length == 0 || st_abs + st_length > data_size_) break;
+                uint16_t st_length = get_word_at_offset(st_abs);
+                if (st_length == 0 || st_abs + st_length > m_data_size) break;
 
                 std::string st_key = get_string_u_at_rva(get_rva_from_offset(st_abs + 6));
 
                 // Parse individual String entries within the StringTable
                 auto str_offset = dword_align(
-                    st_offset + 6 + 2 * (static_cast<std::uint32_t>(st_key.size()) + 1), rva);
+                    st_offset + 6 + 2 * (static_cast<uint32_t>(st_key.size()) + 1), rva);
 
-                while (start_offset + str_offset + 6 <= data_size_ &&
+                while (start_offset + str_offset + 6 <= m_data_size &&
                        str_offset < st_offset + st_length) {
                     auto str_abs = start_offset + str_offset;
-                    std::uint16_t str_length = get_word_at_offset(str_abs);
-                    std::uint16_t str_value_length = get_word_at_offset(str_abs + 2);
-                    if (str_length == 0 || str_abs + str_length > data_size_) break;
+                    uint16_t str_length = get_word_at_offset(str_abs);
+                    uint16_t str_value_length = get_word_at_offset(str_abs + 2);
+                    if (str_length == 0 || str_abs + str_length > m_data_size) break;
 
                     auto str_key_offset = str_abs + 6;
                     std::string str_key = get_string_u_at_rva(
@@ -1334,7 +1334,7 @@ std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
 
                     if (!str_key.empty() && str_value_length > 0) {
                         auto val_rva = get_rva_from_offset(dword_align(
-                            str_offset + 6 + 2 * (static_cast<std::uint32_t>(str_key.size()) + 1), rva));
+                            str_offset + 6 + 2 * (static_cast<uint32_t>(str_key.size()) + 1), rva));
                         std::string val = get_string_u_at_rva(val_rva, str_value_length);
                         vi.strings[str_key] = val;
                     }
@@ -1352,23 +1352,23 @@ std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
     return vi;
 }
 
-std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t rva, std::uint32_t size) {
+std::vector<DelayImportDescData> PE::parse_delay_import_directory(uint32_t rva, uint32_t size) {
     std::vector<DelayImportDescData> import_descs;
-    std::size_t desc_size = 32;
-    std::size_t error_count = 0;
+    size_t desc_size = 32;
+    size_t error_count = 0;
 
     while (true) {
-        if (rva + desc_size > data_size_) break;
+        if (rva + desc_size > m_data_size) break;
 
-        auto import_desc = ImageDelayImportDescriptor::parse(data_, rva);
+        auto import_desc = ImageDelayImportDescriptor::parse(m_data, rva);
         if (import_desc.all_zeroes()) break;
 
-        std::uint32_t int_rva = import_desc.DelayINT;
-        std::uint32_t iat_rva = import_desc.DelayIAT;
+        uint32_t int_rva = import_desc.DelayINT;
+        uint32_t iat_rva = import_desc.DelayIAT;
 
         if (import_desc.grAttrs() == 0 &&
-            file_header_.Machine == static_cast<std::uint16_t>(MachineType::I386)) {
-            auto image_base = optional_header_32_.ImageBase;
+            m_file_header.Machine == static_cast<uint16_t>(MachineType::I386)) {
+            auto image_base = m_optional_header_32.ImageBase;
             int_rva = (int_rva != 0) ? int_rva - image_base : 0;
             iat_rva = (iat_rva != 0) ? iat_rva - image_base : 0;
         }
@@ -1376,7 +1376,7 @@ std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t 
         rva += desc_size;
 
         auto file_offset = get_offset_from_rva(rva);
-        std::uint32_t max_len = static_cast<std::uint32_t>(data_size_) - file_offset;
+        uint32_t max_len = static_cast<uint32_t>(m_data_size) - file_offset;
         if (int_rva != 0 && rva > int_rva) {
             max_len = std::max(max_len, rva - int_rva);
         }
@@ -1418,7 +1418,7 @@ std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t 
             DelayImportDescData desc;
             desc.dll = dll;
             desc.imports = std::move(import_data);
-            desc.struct_offset = static_cast<std::uint32_t>(rva - desc_size);
+            desc.struct_offset = static_cast<uint32_t>(rva - desc_size);
             import_descs.push_back(std::move(desc));
         }
     }
@@ -1426,14 +1426,14 @@ std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t 
     return import_descs;
 }
 
-std::optional<ImageResourceDataEntry> PE::parse_resource_data_entry(std::uint32_t rva) {
-    if (rva + 16 > data_size_) return std::nullopt;
-    return ImageResourceDataEntry::parse(data_, rva);
+std::optional<ImageResourceDataEntry> PE::parse_resource_data_entry(uint32_t rva) {
+    if (rva + 16 > m_data_size) return std::nullopt;
+    return ImageResourceDataEntry::parse(m_data, rva);
 }
 
 std::optional<ResourceDirData> PE::parse_resources_directory(
-    std::uint32_t rva, std::uint32_t size, std::uint32_t base_rva,
-    int level, std::vector<std::uint32_t> dirs) {
+    uint32_t rva, uint32_t size, uint32_t base_rva,
+    int level, std::vector<uint32_t> dirs) {
 
     if (level > static_cast<int>(MAX_RESOURCE_DEPTH)) {
         add_warning("Error parsing the resources directory. "
@@ -1441,7 +1441,7 @@ std::optional<ResourceDirData> PE::parse_resources_directory(
         return std::nullopt;
     }
 
-    if (rva + 16 > data_size_) {
+    if (rva + 16 > m_data_size) {
         add_warning("Invalid resources directory. Can't read directory data at RVA: 0x" +
             std::to_string(rva));
         return std::nullopt;
@@ -1449,8 +1449,8 @@ std::optional<ResourceDirData> PE::parse_resources_directory(
 
     if (base_rva == 0) base_rva = rva;
 
-    auto resource_dir = ImageResourceDirectory::parse(data_, rva);
-    std::uint32_t number_of_entries = resource_dir.NumberOfNamedEntries +
+    auto resource_dir = ImageResourceDirectory::parse(m_data, rva);
+    uint32_t number_of_entries = resource_dir.NumberOfNamedEntries +
                                       resource_dir.NumberOfIdEntries;
 
     if (number_of_entries > MAX_ALLOWED_RESOURCE_ENTRIES) {
@@ -1459,16 +1459,16 @@ std::optional<ResourceDirData> PE::parse_resources_directory(
         return std::nullopt;
     }
 
-    std::uint32_t entry_rva = rva + 16;
+    uint32_t entry_rva = rva + 16;
     std::vector<ResourceDirEntryData> dir_entries;
 
-    for (std::uint32_t idx = 0; idx < number_of_entries; idx++) {
-        if (entry_rva + 8 > data_size_) break;
+    for (uint32_t idx = 0; idx < number_of_entries; idx++) {
+        if (entry_rva + 8 > m_data_size) break;
 
-        auto res = ImageResourceDirectoryEntry::parse(data_, entry_rva);
+        auto res = ImageResourceDirectoryEntry::parse(m_data, entry_rva);
 
         std::string entry_name;
-        std::uint32_t entry_id = 0;
+        uint32_t entry_id = 0;
 
         if (res.is_name()) {
             auto name_offset = base_rva + res.name_id();
@@ -1523,10 +1523,10 @@ std::optional<ResourceDirData> PE::parse_resources_directory(
 }
 
 std::string PE::get_imphash() const {
-    if (imports_.empty()) return "";
+    if (m_imports.empty()) return "";
 
     std::string result;
-    for (auto& entry : imports_) {
+    for (auto& entry : m_imports) {
         std::string libname = entry.dll;
         std::transform(libname.begin(), libname.end(), libname.begin(),
             [](unsigned char c) { return std::tolower(c); });
@@ -1565,9 +1565,9 @@ std::string PE::get_imphash() const {
 }
 
 std::string PE::get_exphash() const {
-    if (!exports_ || exports_->symbols.empty()) return "";
+    if (!m_exports || m_exports->symbols.empty()) return "";
     std::string result;
-    for (auto& exp : exports_->symbols) {
+    for (auto& exp : m_exports->symbols) {
         if (exp.name.empty()) continue;
         if (!result.empty()) result += ",";
         std::string name = exp.name;
@@ -1583,7 +1583,7 @@ std::string PE::get_exphash() const {
 }
 
 void PE::show_warnings() const {
-    for (auto& w : warnings_) {
+    for (auto& w : m_warnings) {
         std::cerr << "> " << w << "\n";
     }
 }
@@ -1591,97 +1591,97 @@ void PE::show_warnings() const {
 std::string PE::dump_info() const {
     std::ostringstream ss;
     ss << "DOS Header:\n";
-    ss << "  e_magic: 0x" << std::hex << dos_header_.e_magic << "\n";
-    ss << "  e_lfanew: 0x" << dos_header_.e_lfanew << "\n";
+    ss << "  e_magic: 0x" << std::hex << m_dos_header.e_magic << "\n";
+    ss << "  e_lfanew: 0x" << m_dos_header.e_lfanew << "\n";
     ss << "\nFile Header:\n";
-    ss << "  Machine: 0x" << file_header_.Machine << "\n";
-    ss << "  NumberOfSections: " << std::dec << file_header_.NumberOfSections << "\n";
-    ss << "  Characteristics: 0x" << std::hex << file_header_.Characteristics << "\n";
+    ss << "  Machine: 0x" << m_file_header.Machine << "\n";
+    ss << "  NumberOfSections: " << std::dec << m_file_header.NumberOfSections << "\n";
+    ss << "  Characteristics: 0x" << std::hex << m_file_header.Characteristics << "\n";
 
-    if (rich_header_) {
+    if (m_rich_header) {
         ss << "\nRich Header:\n";
-        ss << "  Checksum: 0x" << std::hex << rich_header_->checksum << "\n";
-        ss << "  Values: " << std::dec << rich_header_->values.size() << " pairs\n";
+        ss << "  Checksum: 0x" << std::hex << m_rich_header->checksum << "\n";
+        ss << "  Values: " << std::dec << m_rich_header->values.size() << " pairs\n";
     }
 
     ss << "\nSections:\n";
-    for (auto& s : sections_) {
+    for (auto& s : m_sections) {
         ss << "  " << s.name() << ": VA=0x" << std::hex << s.VirtualAddress
            << " Size=0x" << s.SizeOfRawData
            << " Chars=0x" << s.Characteristics << "\n";
     }
 
-    if (!imports_.empty()) {
+    if (!m_imports.empty()) {
         ss << "\nImports:\n";
-        for (auto& imp : imports_) {
+        for (auto& imp : m_imports) {
             ss << "  " << imp.dll << " (" << imp.imports.size() << " symbols)\n";
         }
     }
 
-    if (!delay_imports_.empty()) {
+    if (!m_delay_imports.empty()) {
         ss << "\nDelay Imports:\n";
-        for (auto& imp : delay_imports_) {
+        for (auto& imp : m_delay_imports) {
             ss << "  " << imp.dll << " (" << imp.imports.size() << " symbols)\n";
         }
     }
 
-    if (exports_) {
+    if (m_exports) {
         ss << "\nExports:\n";
-        ss << "  " << exports_->name << " (" << exports_->symbols.size() << " symbols)\n";
+        ss << "  " << m_exports->name << " (" << m_exports->symbols.size() << " symbols)\n";
     }
 
-    if (!relocations_.empty()) {
+    if (!m_relocations.empty()) {
         ss << "\nRelocations:\n";
-        std::size_t total_entries = 0;
-        for (auto& r : relocations_) total_entries += r.entries.size();
-        ss << "  " << relocations_.size() << " blocks (" << total_entries << " entries)\n";
+        size_t total_entries = 0;
+        for (auto& r : m_relocations) total_entries += r.entries.size();
+        ss << "  " << m_relocations.size() << " blocks (" << total_entries << " entries)\n";
     }
 
-    if (tls_data_) {
+    if (m_tls_data) {
         ss << "\nTLS:\n";
-        ss << "  StartAddressOfRawData: 0x" << std::hex << tls_data_->start_address_of_raw_data << "\n";
-        ss << "  AddressOfIndex: 0x" << tls_data_->address_of_index << "\n";
+        ss << "  StartAddressOfRawData: 0x" << std::hex << m_tls_data->start_address_of_raw_data << "\n";
+        ss << "  AddressOfIndex: 0x" << m_tls_data->address_of_index << "\n";
     }
 
-    if (load_config_data_) {
+    if (m_load_config_data) {
         ss << "\nLoad Config:\n";
-        ss << "  Size: " << std::dec << load_config_data_->size << "\n";
-        ss << "  GuardFlags: 0x" << std::hex << load_config_data_->guard_flags << "\n";
+        ss << "  Size: " << std::dec << m_load_config_data->size << "\n";
+        ss << "  GuardFlags: 0x" << std::hex << m_load_config_data->guard_flags << "\n";
     }
 
-    if (version_info_) {
+    if (m_version_info) {
         ss << "\nVersion Info:\n";
-        ss << "  Signature: 0x" << std::hex << version_info_->signature << "\n";
-        ss << "  FileOS: 0x" << version_info_->file_os << "\n";
-        ss << "  FileType: 0x" << version_info_->file_type << "\n";
-        if (!version_info_->strings.empty()) {
+        ss << "  Signature: 0x" << std::hex << m_version_info->signature << "\n";
+        ss << "  FileOS: 0x" << m_version_info->file_os << "\n";
+        ss << "  FileType: 0x" << m_version_info->file_type << "\n";
+        if (!m_version_info->strings.empty()) {
             ss << "  Strings:\n";
-            for (auto& [k, v] : version_info_->strings) {
+            for (auto& [k, v] : m_version_info->strings) {
                 ss << "    " << k << ": " << v << "\n";
             }
         }
     }
 
-    if (!resources_.empty()) {
+    if (!m_resources.empty()) {
         ss << "\nResources:\n";
-        for (auto& res_dir : resources_) {
+        for (auto& res_dir : m_resources) {
             ss << "  " << res_dir.entries.size() << " top-level entries\n";
         }
     }
 
-    if (!exceptions_.empty()) {
+    if (!m_exceptions.empty()) {
         ss << "\nExceptions:\n";
-        ss << "  " << exceptions_.size() << " entries\n";
+        ss << "  " << m_exceptions.size() << " entries\n";
     }
 
-    if (!bound_imports_.empty()) {
+    if (!m_bound_imports.empty()) {
         ss << "\nBound Imports:\n";
-        ss << "  " << bound_imports_.size() << " entries\n";
+        ss << "  " << m_bound_imports.size() << " entries\n";
     }
 
-    if (!warnings_.empty()) {
+    if (!m_warnings.empty()) {
         ss << "\nWarnings:\n";
-        for (auto& w : warnings_) {
+        for (auto& w : m_warnings) {
             ss << "  " << w << "\n";
         }
     }
@@ -1691,14 +1691,14 @@ std::string PE::dump_info() const {
 
 std::vector<std::string> PE::get_resources_strings() const {
     std::vector<std::string> result;
-    for (auto& res_dir : resources_) {
+    for (auto& res_dir : m_resources) {
         for (auto& entry : res_dir.entries) {
             if (entry.directory) {
                 for (auto& sub_entry : entry.directory->entries) {
-                    if (sub_entry.data_entry && sub_entry.id == static_cast<std::uint32_t>(ResourceType::STRING)) {
+                    if (sub_entry.data_entry && sub_entry.id == static_cast<uint32_t>(ResourceType::STRING)) {
                         auto rva = sub_entry.data_entry->data_rva;
                         auto size = sub_entry.data_entry->size;
-                        if (rva + size <= data_size_) {
+                        if (rva + size <= m_data_size) {
                             auto str = get_string_u_at_rva(rva, size / 2);
                             if (!str.empty()) {
                                 result.push_back(str);
@@ -1713,46 +1713,46 @@ std::vector<std::string> PE::get_resources_strings() const {
 }
 
 std::optional<RichHeaderData> PE::parse_rich_header() {
-    constexpr std::uint32_t DANS = 0x536E6144;
-    constexpr std::uint32_t RICH = 0x68636952;
+    constexpr uint32_t DANS = 0x536E6144;
+    constexpr uint32_t RICH = 0x68636952;
 
-    auto optional_header_end = static_cast<std::size_t>(dos_header_.e_lfanew) + 4 + 20 +
-                               file_header_.SizeOfOptionalHeader;
-    auto search_end = std::min(optional_header_end, data_size_);
+    auto optional_header_end = static_cast<size_t>(m_dos_header.e_lfanew) + 4 + 20 +
+                               m_file_header.SizeOfOptionalHeader;
+    auto search_end = std::min(optional_header_end, m_data_size);
 
     if (search_end < 0x80) return std::nullopt;
 
-    const std::uint8_t rich_tag_bytes[] = { 0x52, 0x69, 0x63, 0x68 };
-    std::size_t rich_index = 0;
-    for (std::size_t i = 0x80; i + 4 <= search_end; i++) {
-        if (std::memcmp(data_.data() + i, rich_tag_bytes, 4) == 0) {
+    const uint8_t rich_tag_bytes[] = { 0x52, 0x69, 0x63, 0x68 };
+    size_t rich_index = 0;
+    for (size_t i = 0x80; i + 4 <= search_end; i++) {
+        if (std::memcmp(m_data.data() + i, rich_tag_bytes, 4) == 0) {
             rich_index = i;
             break;
         }
     }
     if (rich_index == 0) return std::nullopt;
 
-    std::size_t block_len = rich_index + 8 - 0x80;
+    size_t block_len = rich_index + 8 - 0x80;
     block_len = 4 * (block_len / 4);
     if (block_len == 0) return std::nullopt;
 
-    std::vector<std::uint32_t> data(block_len / 4);
-    for (std::size_t i = 0; i < data.size(); i++) {
-        std::memcpy(&data[i], data_.data() + 0x80 + i * 4, 4);
+    std::vector<uint32_t> data(block_len / 4);
+    for (size_t i = 0; i < data.size(); i++) {
+        std::memcpy(&data[i], m_data.data() + 0x80 + i * 4, 4);
     }
 
     auto rich_pos = std::find(data.begin(), data.end(), RICH);
     if (rich_pos == data.end()) return std::nullopt;
 
-    std::uint32_t checksum = *(rich_pos + 1);
+    uint32_t checksum = *(rich_pos + 1);
 
     RichHeaderData result;
     result.checksum = checksum;
-    result.raw_data.assign(data_.data() + 0x80, data_.data() + 0x80 + rich_index - 0x80);
+    result.raw_data.assign(m_data.data() + 0x80, m_data.data() + 0x80 + rich_index - 0x80);
 
     result.clear_data.resize(rich_index - 0x80);
-    for (std::size_t i = 0; i + 3 < result.raw_data.size(); i += 4) {
-        std::uint32_t val;
+    for (size_t i = 0; i + 3 < result.raw_data.size(); i += 4) {
+        uint32_t val;
         std::memcpy(&val, result.raw_data.data() + i, 4);
         val ^= checksum;
         std::memcpy(result.clear_data.data() + i, &val, 4);
@@ -1778,10 +1778,10 @@ std::optional<RichHeaderData> PE::parse_rich_header() {
 }
 
 std::string PE::get_rich_header_hash() const {
-    if (!rich_header_ || rich_header_->clear_data.empty()) return "";
+    if (!m_rich_header || m_rich_header->clear_data.empty()) return "";
 
     MD5 md5;
-    md5.update(rich_header_->clear_data);
+    md5.update(m_rich_header->clear_data);
     return md5.hexdigest();
 }
 

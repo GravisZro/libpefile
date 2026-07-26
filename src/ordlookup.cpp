@@ -9,7 +9,7 @@ namespace {
 
   bool iequals(std::string_view a, std::string_view b) {
       if (a.size() != b.size()) return false;
-      for (std::size_t i = 0; i < a.size(); i++) {
+      for (size_t i = 0; i < a.size(); i++) {
           if (std::tolower(static_cast<unsigned char>(a[i])) !=
               std::tolower(static_cast<unsigned char>(b[i]))) return false;
       }
@@ -432,7 +432,7 @@ const OrdinalMap& get_imphash_ordinals(std::string_view dll_name) {
     return imphash_lookup_table(dll_name);
 }
 
-std::string ordinal_lookup(std::string_view dll_name, std::uint16_t ordinal, bool make_name) {
+std::string ordinal_lookup(std::string_view dll_name, uint16_t ordinal, bool make_name) {
     auto& table = lookup_table(dll_name);
     auto it = table.find(ordinal);
     if (it != table.end()) {
@@ -444,7 +444,7 @@ std::string ordinal_lookup(std::string_view dll_name, std::uint16_t ordinal, boo
     return "";
 }
 
-std::string imphash_ordinal_lookup(std::string_view dll_name, std::uint16_t ordinal, bool make_name) {
+std::string imphash_ordinal_lookup(std::string_view dll_name, uint16_t ordinal, bool make_name) {
     auto& table = imphash_lookup_table(dll_name);
     auto it = table.find(ordinal);
     if (it != table.end()) {

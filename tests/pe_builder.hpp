@@ -5,147 +5,135 @@
 #include <vector>
 #include <string>
 
+#include "pe_structures.hpp"
+
 namespace test_helpers {
 
 class PeBuilder {
 public:
-    PeBuilder(bool is_64 = false) : is_64_(is_64) {
-        dos_header.resize(64, 0);
-        dos_header[0] = 0x4D;
-        dos_header[1] = 0x5A;
-        std::uint32_t e_lfanew = 0x40;
-        std::memcpy(dos_header.data() + 0x3C, &e_lfanew, 4);
+    PeBuilder(bool is_64 = false) : is_64_(is_64) {}
+
+    void set_characteristics(uint16_t c) { file_header_.Characteristics = c; }
+    void set_machine(uint16_t m) { file_header_.Machine = m; }
+    void set_subsystem(uint16_t s) { subsystem_ = s; }
+    void set_entry_point(uint32_t ep) { entry_point_ = ep; }
+    void set_image_base(uint64_t ib) { image_base_ = ib; }
+    void set_num_sections(uint16_t n) { file_header_.NumberOfSections = n; }
+    void set_num_data_dirs(uint32_t n) { num_data_dirs_ = n; }
+
+    void add_section(const std::string& name, uint32_t virtual_size,
+                     uint32_t virtual_address, uint32_t size_of_raw_data,
+                     uint32_t pointer_to_raw_data, uint32_t characteristics,
+                     const std::vector<uint8_t>& data = {}) {
+        pefile::SectionHeader sec{};
+        std::strncpy(sec.Name, name.c_str(), 8);
+        sec.VirtualSize = virtual_size;
+        sec.VirtualAddress = virtual_address;
+        sec.SizeOfRawData = size_of_raw_data;
+        sec.PointerToRawData = pointer_to_raw_data;
+        sec.Characteristics = characteristics;
+        section_data_.push_back(data);
+        sections_.push_back(sec);
     }
 
-    void set_characteristics(std::uint16_t c) { file_characteristics = c; }
-    void set_machine(std::uint16_t m) { machine = m; }
-    void set_subsystem(std::uint16_t s) { subsystem = s; }
-    void set_entry_point(std::uint32_t ep) { entry_point = ep; }
-    void set_image_base(std::uint64_t ib) { image_base = ib; }
-    void set_num_sections(std::uint16_t n) { num_sections = n; }
-    void set_num_data_dirs(std::uint32_t n) { num_data_dirs = n; }
-
-    void add_section(const std::string& name, std::uint32_t virtual_size,
-                     std::uint32_t virtual_address, std::uint32_t size_of_raw_data,
-                     std::uint32_t pointer_to_raw_data, std::uint32_t characteristics,
-                     const std::vector<std::uint8_t>& data = {}) {
-        Section sec{};
-        std::strncpy(sec.name, name.c_str(), 8);
-        sec.virtual_size = virtual_size;
-        sec.virtual_address = virtual_address;
-        sec.size_of_raw_data = size_of_raw_data;
-        sec.pointer_to_raw_data = pointer_to_raw_data;
-        sec.characteristics = characteristics;
-        sec.data = data;
-        sections.push_back(sec);
+    void add_export_directory(uint32_t rva, uint32_t size,
+                               const std::vector<uint8_t>& data) {
+        data_dirs_[0] = {rva, size};
+        export_data_ = data;
     }
 
-    void add_export_directory(std::uint32_t rva, std::uint32_t size,
-                               const std::vector<std::uint8_t>& data) {
-        data_dirs[0] = {rva, size};
-        export_data = data;
+    void add_import_directory(uint32_t rva, uint32_t size,
+                               const std::vector<uint8_t>& data) {
+        data_dirs_[1] = {rva, size};
+        import_data_ = data;
     }
 
-    void add_import_directory(std::uint32_t rva, std::uint32_t size,
-                               const std::vector<std::uint8_t>& data) {
-        data_dirs[1] = {rva, size};
-        import_data = data;
+    void add_resource_directory(uint32_t rva, uint32_t size,
+                                 const std::vector<uint8_t>& data) {
+        data_dirs_[2] = {rva, size};
+        resource_data_ = data;
     }
 
-    void add_resource_directory(std::uint32_t rva, std::uint32_t size,
-                                 const std::vector<std::uint8_t>& data) {
-        data_dirs[2] = {rva, size};
-        resource_data = data;
+    void add_exception_directory(uint32_t rva, uint32_t size,
+                                  const std::vector<uint8_t>& data) {
+        data_dirs_[3] = {rva, size};
+        exception_data_ = data;
     }
 
-    void add_exception_directory(std::uint32_t rva, std::uint32_t size,
-                                  const std::vector<std::uint8_t>& data) {
-        data_dirs[3] = {rva, size};
-        exception_data = data;
+    void add_reloc_directory(uint32_t rva, uint32_t size,
+                              const std::vector<uint8_t>& data) {
+        data_dirs_[5] = {rva, size};
+        reloc_data_ = data;
     }
 
-    void add_reloc_directory(std::uint32_t rva, std::uint32_t size,
-                              const std::vector<std::uint8_t>& data) {
-        data_dirs[5] = {rva, size};
-        reloc_data = data;
+    void add_debug_directory(uint32_t rva, uint32_t size,
+                              const std::vector<uint8_t>& data) {
+        data_dirs_[6] = {rva, size};
+        debug_data_ = data;
     }
 
-    void add_debug_directory(std::uint32_t rva, std::uint32_t size,
-                              const std::vector<std::uint8_t>& data) {
-        data_dirs[6] = {rva, size};
-        debug_data = data;
+    void add_tls_directory(uint32_t rva, uint32_t size,
+                            const std::vector<uint8_t>& data) {
+        data_dirs_[9] = {rva, size};
+        tls_data_ = data;
     }
 
-    void add_tls_directory(std::uint32_t rva, std::uint32_t size,
-                            const std::vector<std::uint8_t>& data) {
-        data_dirs[9] = {rva, size};
-        tls_data = data;
+    void add_load_config_directory(uint32_t rva, uint32_t size,
+                                    const std::vector<uint8_t>& data) {
+        data_dirs_[10] = {rva, size};
+        load_config_data_ = data;
     }
 
-    void add_load_config_directory(std::uint32_t rva, std::uint32_t size,
-                                    const std::vector<std::uint8_t>& data) {
-        data_dirs[10] = {rva, size};
-        load_config_data = data;
+    void add_delay_import_directory(uint32_t rva, uint32_t size,
+                                     const std::vector<uint8_t>& data) {
+        data_dirs_[13] = {rva, size};
+        delay_import_data_ = data;
     }
 
-    void add_delay_import_directory(std::uint32_t rva, std::uint32_t size,
-                                     const std::vector<std::uint8_t>& data) {
-        data_dirs[13] = {rva, size};
-        delay_import_data = data;
-    }
-
-    std::vector<std::uint8_t> build() {
-        if (num_sections == 0) {
-            num_sections = static_cast<std::uint16_t>(sections.size());
+    std::vector<uint8_t> build() {
+        if (file_header_.NumberOfSections == 0) {
+            file_header_.NumberOfSections = static_cast<uint16_t>(sections_.size());
         }
-        if (num_data_dirs == 0) {
-            num_data_dirs = 16;
+        if (num_data_dirs_ == 0) {
+            num_data_dirs_ = 16;
         }
 
-        std::vector<std::uint8_t> result;
+        std::vector<uint8_t> result;
 
-        result.insert(result.end(), dos_header.begin(), dos_header.end());
+        // DOS header (64 bytes)
+        pefile::DosHeader dos{};
+        dos.e_magic = 0x5A4D;
+        dos.e_lfanew = 0x40;
+        push_struct(result, dos);
 
         // PE signature
         push_u32(result, 0x00004550); // "PE\0\0"
 
-        // COFF header (20 bytes)
-        push_u16(result, machine);
-        push_u16(result, num_sections);
-        push_u32(result, 0); // TimeDateStamp
-        push_u32(result, 0); // PointerToSymbolTable
-        push_u32(result, 0); // NumberOfSymbols
-        push_u16(result, is_64_ ? 240 : 224); // SizeOfOptionalHeader
-        push_u16(result, file_characteristics);
+        // COFF file header
+        file_header_.SizeOfOptionalHeader = is_64_ ? 240 : 224;
+        push_struct(result, file_header_);
 
-        // Optional header
+        // Optional header + data directories
         if (is_64_) {
             build_optional_header_64(result);
         } else {
             build_optional_header_32(result);
         }
 
-        // Sections
-        for (auto& sec : sections) {
-            std::uint8_t sec_buf[40] = {};
-            std::memcpy(sec_buf, sec.name, 8);
-            std::memcpy(sec_buf + 8, &sec.virtual_size, 4);
-            std::memcpy(sec_buf + 12, &sec.virtual_address, 4);
-            std::memcpy(sec_buf + 16, &sec.size_of_raw_data, 4);
-            std::memcpy(sec_buf + 20, &sec.pointer_to_raw_data, 4);
-            std::memcpy(sec_buf + 36, &sec.characteristics, 4);
-            result.insert(result.end(), sec_buf, sec_buf + 40);
+        // Section headers
+        for (auto& sec : sections_) {
+            push_struct(result, sec);
         }
 
         // Section data
-        for (auto& sec : sections) {
-            while (result.size() < sec.pointer_to_raw_data) {
+        for (size_t i = 0; i < sections_.size(); i++) {
+            while (result.size() < sections_[i].PointerToRawData) {
                 result.push_back(0);
             }
-            if (!sec.data.empty()) {
-                result.insert(result.end(), sec.data.begin(), sec.data.end());
+            if (!section_data_[i].empty()) {
+                result.insert(result.end(), section_data_[i].begin(), section_data_[i].end());
             }
-            while (result.size() < sec.pointer_to_raw_data + sec.size_of_raw_data) {
+            while (result.size() < sections_[i].PointerToRawData + sections_[i].SizeOfRawData) {
                 result.push_back(0);
             }
         }
@@ -154,123 +142,102 @@ public:
     }
 
 private:
-    void push_u16(std::vector<std::uint8_t>& v, std::uint16_t val) {
-        v.push_back(static_cast<std::uint8_t>(val & 0xFF));
-        v.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
+    template <typename T>
+    static void push_struct(std::vector<uint8_t>& v, const T& s) {
+        auto* p = reinterpret_cast<const uint8_t*>(&s);
+        v.insert(v.end(), p, p + sizeof(T));
     }
 
-    void push_u32(std::vector<std::uint8_t>& v, std::uint32_t val) {
-        for (int i = 0; i < 4; i++) {
-            v.push_back(static_cast<std::uint8_t>((val >> (i * 8)) & 0xFF));
+    static void push_u32(std::vector<uint8_t>& v, uint32_t val) {
+        v.push_back(static_cast<uint8_t>(val & 0xFF));
+        v.push_back(static_cast<uint8_t>((val >> 8) & 0xFF));
+        v.push_back(static_cast<uint8_t>((val >> 16) & 0xFF));
+        v.push_back(static_cast<uint8_t>((val >> 24) & 0xFF));
+    }
+
+    void build_optional_header_32(std::vector<uint8_t>& result) {
+        pefile::OptionalHeader32 opt{};
+        opt.Magic = 0x10B;
+        opt.SizeOfCode = 0x200;
+        opt.AddressOfEntryPoint = entry_point_;
+        opt.BaseOfCode = 0x1000;
+        opt.BaseOfData = 0x2000;
+        opt.ImageBase = static_cast<uint32_t>(image_base_);
+        opt.SectionAlignment = 0x1000;
+        opt.FileAlignment = 0x200;
+        opt.MajorOperatingSystemVersion = 4;
+        opt.MajorSubsystemVersion = 4;
+        opt.SizeOfImage = 0x4000;
+        opt.SizeOfHeaders = 0x200;
+        opt.Subsystem = subsystem_;
+        opt.SizeOfStackReserve = 0x100000;
+        opt.SizeOfStackCommit = 0x1000;
+        opt.SizeOfHeapReserve = 0x100000;
+        opt.SizeOfHeapCommit = 0x1000;
+        opt.NumberOfRvaAndSizes = num_data_dirs_;
+
+        // Write optional header fields before data directories
+        auto* base = reinterpret_cast<const uint8_t*>(&opt);
+        size_t fields_size = sizeof(pefile::OptionalHeader32) - sizeof(pefile::DataDirectoryRaw) * 16;
+        result.insert(result.end(), base, base + fields_size);
+
+        // Data directories
+        for (auto& dd : data_dirs_) {
+            push_struct(result, dd);
         }
     }
 
-    void push_u64(std::vector<std::uint8_t>& v, std::uint64_t val) {
-        for (int i = 0; i < 8; i++) {
-            v.push_back(static_cast<std::uint8_t>((val >> (i * 8)) & 0xFF));
-        }
-    }
+    void build_optional_header_64(std::vector<uint8_t>& result) {
+        pefile::OptionalHeader64 opt{};
+        opt.Magic = 0x20B;
+        opt.SizeOfCode = 0x200;
+        opt.AddressOfEntryPoint = entry_point_;
+        opt.BaseOfCode = 0x1000;
+        opt.ImageBase = image_base_;
+        opt.SectionAlignment = 0x1000;
+        opt.FileAlignment = 0x200;
+        opt.MajorOperatingSystemVersion = 4;
+        opt.MajorSubsystemVersion = 4;
+        opt.SizeOfImage = 0x4000;
+        opt.SizeOfHeaders = 0x200;
+        opt.Subsystem = subsystem_;
+        opt.SizeOfStackReserve = 0x100000;
+        opt.SizeOfStackCommit = 0x1000;
+        opt.SizeOfHeapReserve = 0x100000;
+        opt.SizeOfHeapCommit = 0x1000;
+        opt.NumberOfRvaAndSizes = num_data_dirs_;
 
-    void push_data_dir(std::vector<std::uint8_t>& v, std::uint32_t rva, std::uint32_t size) {
-        push_u32(v, rva);
-        push_u32(v, size);
-    }
+        // Write optional header fields before data directories
+        auto* base = reinterpret_cast<const uint8_t*>(&opt);
+        size_t fields_size = sizeof(pefile::OptionalHeader64) - sizeof(pefile::DataDirectoryRaw) * 16;
+        result.insert(result.end(), base, base + fields_size);
 
-    void build_optional_header_32(std::vector<std::uint8_t>& result) {
-        push_u16(result, 0x10B); // Magic PE32
-        result.push_back(0); result.push_back(0); // LinkerVersion
-        push_u32(result, 0x200); // SizeOfCode
-        push_u32(result, 0);     // SizeOfInitializedData
-        push_u32(result, 0);     // SizeOfUninitializedData
-        push_u32(result, entry_point);
-        push_u32(result, 0x1000); // BaseOfCode
-        push_u32(result, 0x2000); // BaseOfData
-        push_u32(result, static_cast<std::uint32_t>(image_base));
-        push_u32(result, 0x1000); // SectionAlignment
-        push_u32(result, 0x200);  // FileAlignment
-        push_u16(result, 4); push_u16(result, 0); // OSVersion
-        push_u16(result, 0); push_u16(result, 0); // ImageVersion
-        push_u16(result, 4); push_u16(result, 0); // SubsystemVersion
-        push_u32(result, 0);     // Win32VersionValue
-        push_u32(result, 0x4000); // SizeOfImage
-        push_u32(result, 0x200);  // SizeOfHeaders
-        push_u32(result, 0);     // CheckSum
-        push_u16(result, subsystem);
-        push_u16(result, 0);     // DllCharacteristics
-        push_u32(result, 0x100000); // SizeOfStackReserve
-        push_u32(result, 0x1000);   // SizeOfStackCommit
-        push_u32(result, 0x100000); // SizeOfHeapReserve
-        push_u32(result, 0x1000);   // SizeOfHeapCommit
-        push_u32(result, 0);     // LoaderFlags
-        push_u32(result, num_data_dirs); // NumberOfRvaAndSizes
-        for (auto& dd : data_dirs) {
-            push_data_dir(result, dd.first, dd.second);
-        }
-    }
-
-    void build_optional_header_64(std::vector<std::uint8_t>& result) {
-        push_u16(result, 0x20B); // Magic PE32+
-        result.push_back(0); result.push_back(0); // LinkerVersion
-        push_u32(result, 0x200); // SizeOfCode
-        push_u32(result, 0);     // SizeOfInitializedData
-        push_u32(result, 0);     // SizeOfUninitializedData
-        push_u32(result, entry_point);
-        push_u32(result, 0x1000); // BaseOfCode
-        push_u64(result, image_base);
-        push_u32(result, 0x1000); // SectionAlignment
-        push_u32(result, 0x200);  // FileAlignment
-        push_u16(result, 4); push_u16(result, 0); // OSVersion
-        push_u16(result, 0); push_u16(result, 0); // ImageVersion
-        push_u16(result, 4); push_u16(result, 0); // SubsystemVersion
-        push_u32(result, 0);     // Win32VersionValue
-        push_u32(result, 0x4000); // SizeOfImage
-        push_u32(result, 0x200);  // SizeOfHeaders
-        push_u32(result, 0);     // CheckSum
-        push_u16(result, subsystem);
-        push_u16(result, 0);     // DllCharacteristics
-        push_u64(result, 0x100000); // SizeOfStackReserve
-        push_u64(result, 0x1000);   // SizeOfStackCommit
-        push_u64(result, 0x100000); // SizeOfHeapReserve
-        push_u64(result, 0x1000);   // SizeOfHeapCommit
-        push_u32(result, 0);     // LoaderFlags
-        push_u32(result, num_data_dirs); // NumberOfRvaAndSizes
-        for (auto& dd : data_dirs) {
-            push_data_dir(result, dd.first, dd.second);
+        // Data directories
+        for (auto& dd : data_dirs_) {
+            push_struct(result, dd);
         }
     }
 
     bool is_64_;
-    std::vector<std::uint8_t> dos_header;
-    std::uint16_t machine = 0x14C;
-    std::uint16_t num_sections = 0;
-    std::uint16_t file_characteristics = 0x0102; // EXECUTABLE_IMAGE | 32BIT_MACHINE
-    std::uint32_t entry_point = 0x1000;
-    std::uint64_t image_base = 0x00400000;
-    std::uint16_t subsystem = 3; // WINDOWS_CUI
-    std::uint32_t num_data_dirs = 16;
+    pefile::FileHeader file_header_{};
+    uint16_t subsystem_ = 3; // WINDOWS_CUI
+    uint32_t entry_point_ = 0x1000;
+    uint64_t image_base_ = 0x00400000;
+    uint32_t num_data_dirs_ = 16;
 
-    struct Section {
-        char name[8] = {};
-        std::uint32_t virtual_size = 0;
-        std::uint32_t virtual_address = 0;
-        std::uint32_t size_of_raw_data = 0;
-        std::uint32_t pointer_to_raw_data = 0;
-        std::uint32_t characteristics = 0;
-        std::vector<std::uint8_t> data;
-    };
+    std::vector<pefile::SectionHeader> sections_;
+    std::vector<std::vector<uint8_t>> section_data_;
+    pefile::DataDirectoryRaw data_dirs_[16] = {};
 
-    std::vector<Section> sections;
-    std::pair<std::uint32_t, std::uint32_t> data_dirs[16] = {};
-
-    std::vector<std::uint8_t> export_data;
-    std::vector<std::uint8_t> import_data;
-    std::vector<std::uint8_t> resource_data;
-    std::vector<std::uint8_t> exception_data;
-    std::vector<std::uint8_t> reloc_data;
-    std::vector<std::uint8_t> debug_data;
-    std::vector<std::uint8_t> tls_data;
-    std::vector<std::uint8_t> load_config_data;
-    std::vector<std::uint8_t> delay_import_data;
+    std::vector<uint8_t> export_data_;
+    std::vector<uint8_t> import_data_;
+    std::vector<uint8_t> resource_data_;
+    std::vector<uint8_t> exception_data_;
+    std::vector<uint8_t> reloc_data_;
+    std::vector<uint8_t> debug_data_;
+    std::vector<uint8_t> tls_data_;
+    std::vector<uint8_t> load_config_data_;
+    std::vector<uint8_t> delay_import_data_;
 };
 
 } // namespace test_helpers

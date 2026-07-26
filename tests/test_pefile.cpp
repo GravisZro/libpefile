@@ -75,7 +75,7 @@ static void run_test(const char* name, std::function<void()> fn) {
 // ============================================================================
 // Minimal PE builders
 // ============================================================================
-static std::vector<std::uint8_t> make_minimal_pe32() {
+static std::vector<uint8_t> make_minimal_pe32() {
     test_helpers::PeBuilder b(false);
     b.set_machine(0x14C);
     b.set_characteristics(0x0102);
@@ -85,7 +85,7 @@ static std::vector<std::uint8_t> make_minimal_pe32() {
     return b.build();
 }
 
-static std::vector<std::uint8_t> make_minimal_pe32_dll() {
+static std::vector<uint8_t> make_minimal_pe32_dll() {
     test_helpers::PeBuilder b(false);
     b.set_machine(0x14C);
     b.set_characteristics(0x2102);
@@ -95,7 +95,7 @@ static std::vector<std::uint8_t> make_minimal_pe32_dll() {
     return b.build();
 }
 
-static std::vector<std::uint8_t> make_minimal_pe64() {
+static std::vector<uint8_t> make_minimal_pe64() {
     test_helpers::PeBuilder b(true);
     b.set_machine(0x8664);
     b.set_characteristics(0x0022);
@@ -111,15 +111,15 @@ static std::vector<std::uint8_t> make_minimal_pe64() {
 // ============================================================================
 static void test_error_handling() {
     run_test("empty file throws PEFormatError", []() {
-        std::vector<std::uint8_t> data(64, 0);
+        std::vector<uint8_t> data(64, 0);
         ASSERT_THROW(PE(data), PEFormatError);
     });
     run_test("too small data throws PEFormatError", []() {
-        std::vector<std::uint8_t> data(10, 0);
+        std::vector<uint8_t> data(10, 0);
         ASSERT_THROW(PE(data), PEFormatError);
     });
     run_test("invalid DOS signature throws PEFormatError", []() {
-        std::vector<std::uint8_t> data(64, 0);
+        std::vector<uint8_t> data(64, 0);
         data[0] = 'N'; data[1] = 'O';
         ASSERT_THROW(PE(data), PEFormatError);
     });
@@ -129,9 +129,9 @@ static void test_error_handling() {
         ASSERT_THROW(PE(data), PEFormatError);
     });
     run_test("valid DOS header but truncated throws PEFormatError", []() {
-        std::vector<std::uint8_t> data(0x40, 0);
+        std::vector<uint8_t> data(0x40, 0);
         data[0] = 0x4D; data[1] = 0x5A;
-        std::uint32_t lfanev = 0x40;
+        uint32_t lfanev = 0x40;
         std::memcpy(data.data() + 0x3C, &lfanev, 4);
         ASSERT_THROW(PE(data), PEFormatError);
     });
@@ -270,7 +270,7 @@ static void test_set_bytes() {
     run_test("set_bytes_at_offset and get back", []() {
         auto data = make_minimal_pe32();
         PE pe(data);
-        std::uint8_t buf[] = {0xDE, 0xAD};
+        uint8_t buf[] = {0xDE, 0xAD};
         ASSERT_TRUE(pe.set_bytes_at_offset(0x100, buf));
         ASSERT_EQ(pe.get_word_at_offset(0x100), 0xADDE);
     });
@@ -289,7 +289,7 @@ static void test_set_bytes() {
     run_test("set_bytes out of bounds returns false", []() {
         auto data = make_minimal_pe32();
         PE pe(data);
-        std::uint8_t buf[] = {0xFF};
+        uint8_t buf[] = {0xFF};
         ASSERT_FALSE(pe.set_bytes_at_offset(0xFFFFFFFF, buf));
     });
 }
@@ -485,7 +485,7 @@ static void test_rva_data_access() {
 // ============================================================================
 // Inline PE32 exports (from export_test.py)
 // ============================================================================
-static const std::uint8_t PE32_EXPORTS[] = {
+static const uint8_t PE32_EXPORTS[] = {
     0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xB0, 0x00, 0x00, 0x00, 0x0E, 0x1F, 0xBA, 0x0E, 0x00, 0xB4, 0x09, 0xCD, 0x21, 0xB8, 0x01, 0x4C, 0xCD, 0x21, 0x54, 0x68, 0x69, 0x73, 0x20, 0x70, 0x72, 0x6F, 0x67, 0x72, 0x61, 0x6D, 0x20, 0x63, 0x61, 0x6E, 0x6E, 0x6F, 0x74, 0x20, 0x62, 0x65, 0x20, 0x72, 0x75, 0x6E, 0x20, 0x69, 0x6E, 0x20, 0x44, 0x4F, 0x53, 0x20, 0x6D, 0x6F, 0x64, 0x65, 0x2E, 0x0D, 0x0D, 0x0A,
     0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAD, 0x72, 0x3B, 0xDF, 0xE9, 0x13, 0x55, 0x8C, 0xE9, 0x13, 0x55, 0x8C, 0xE9, 0x13, 0x55, 0x8C, 0x1B, 0x64, 0x55, 0x8D, 0xE8, 0x13, 0x55, 0x8C, 0x1B, 0x64, 0x57, 0x8D, 0xE8, 0x13, 0x55, 0x8C, 0x52, 0x69, 0x63, 0x68, 0xE9, 0x13, 0x55, 0x8C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x45, 0x00, 0x00,
@@ -507,7 +507,7 @@ static const std::uint8_t PE32_EXPORTS[] = {
     0x74, 0x61, 0x24, 0x7A, 0x7A, 0x7A, 0x64, 0x62, 0x67, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static const std::uint8_t PE64_EXPORTS[] = {
+static const uint8_t PE64_EXPORTS[] = {
     0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xB0, 0x00, 0x00, 0x00, 0x0E, 0x1F, 0xBA, 0x0E, 0x00, 0xB4, 0x09, 0xCD, 0x21, 0xB8, 0x01, 0x4C, 0xCD, 0x21, 0x54, 0x68, 0x69, 0x73, 0x20, 0x70, 0x72, 0x6F, 0x67, 0x72, 0x61, 0x6D, 0x20, 0x63, 0x61, 0x6E, 0x6E, 0x6F, 0x74, 0x20, 0x62, 0x65, 0x20, 0x72, 0x75, 0x6E, 0x20, 0x69, 0x6E, 0x20, 0x44, 0x4F, 0x53, 0x20, 0x6D, 0x6F, 0x64, 0x65, 0x2E, 0x0D, 0x0D, 0x0A,
     0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAD, 0x72, 0x3B, 0xDF, 0xE9, 0x13, 0x55, 0x8C, 0xE9, 0x13, 0x55, 0x8C, 0xE9, 0x13, 0x55, 0x8C, 0x1B, 0x64, 0x55, 0x8D, 0xE8, 0x13, 0x55, 0x8C, 0x1B, 0x64, 0x57, 0x8D, 0xE8, 0x13, 0x55, 0x8C, 0x52, 0x69, 0x63, 0x68, 0xE9, 0x13, 0x55, 0x8C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x45, 0x00, 0x00,
@@ -531,8 +531,8 @@ static const std::uint8_t PE64_EXPORTS[] = {
 
 static void test_exports_inline() {
     run_test("PE32 inline exports parsing", []() {
-        std::vector<std::uint8_t> data(PE32_EXPORTS, PE32_EXPORTS + sizeof(PE32_EXPORTS));
-        for (std::size_t i = 0; i < 29; i++) {
+        std::vector<uint8_t> data(PE32_EXPORTS, PE32_EXPORTS + sizeof(PE32_EXPORTS));
+        for (size_t i = 0; i < 29; i++) {
             data[0x218 + 4 * i] = 0x01;
         }
         PE pe(data);
@@ -542,12 +542,12 @@ static void test_exports_inline() {
         auto& exp_syms = exp->symbols;
         ASSERT_TRUE(exp_syms.size() > 0);
 
-        std::vector<std::pair<std::uint32_t, std::string>> results;
+        std::vector<std::pair<uint32_t, std::string>> results;
         for (auto& e : exp_syms) {
             results.push_back({e.ordinal, e.name});
         }
 
-        std::vector<std::pair<std::uint32_t, std::string>> expected = {
+        std::vector<std::pair<uint32_t, std::string>> expected = {
             {1, "TST!"}, {2, "TST\""}, {3, "TST#"}, {4, "TST$"}, {5, "TST%"},
             {6, "TST&"}, {7, "TST'"}, {8, "TST("}, {9, "TST)"}, {10, "TST*"},
             {11, "TST+"}, {12, "TST,"}, {13, "TST-"}, {14, "TST."}, {15, "TST/"},
@@ -557,7 +557,7 @@ static void test_exports_inline() {
         };
 
         ASSERT_EQ(results.size(), expected.size());
-        for (std::size_t i = 0; i < results.size(); i++) {
+        for (size_t i = 0; i < results.size(); i++) {
             ASSERT_EQ(results[i].first, expected[i].first);
             ASSERT_EQ(results[i].second, expected[i].second);
         }
@@ -566,8 +566,8 @@ static void test_exports_inline() {
 
 static void test_exports64_inline() {
     run_test("PE64 inline exports parsing", []() {
-        std::vector<std::uint8_t> data(PE64_EXPORTS, PE64_EXPORTS + sizeof(PE64_EXPORTS));
-        for (std::size_t i = 0; i < 29; i++) {
+        std::vector<uint8_t> data(PE64_EXPORTS, PE64_EXPORTS + sizeof(PE64_EXPORTS));
+        for (size_t i = 0; i < 29; i++) {
             data[0x228 + 4 * i] = 0x01;
         }
         PE pe(data);
@@ -577,12 +577,12 @@ static void test_exports64_inline() {
         auto& exp_syms = exp->symbols;
         ASSERT_TRUE(exp_syms.size() > 0);
 
-        std::vector<std::pair<std::uint32_t, std::string>> results;
+        std::vector<std::pair<uint32_t, std::string>> results;
         for (auto& e : exp_syms) {
             results.push_back({e.ordinal, e.name});
         }
 
-        std::vector<std::pair<std::uint32_t, std::string>> expected = {
+        std::vector<std::pair<uint32_t, std::string>> expected = {
             {1, "TST!"}, {2, "TST\""}, {3, "TST#"}, {4, "TST$"}, {5, "TST%"},
             {6, "TST&"}, {7, "TST'"}, {8, "TST("}, {9, "TST)"}, {10, "TST*"},
             {11, "TST+"}, {12, "TST,"}, {13, "TST-"}, {14, "TST."}, {15, "TST/"},
@@ -592,7 +592,7 @@ static void test_exports64_inline() {
         };
 
         ASSERT_EQ(results.size(), expected.size());
-        for (std::size_t i = 0; i < results.size(); i++) {
+        for (size_t i = 0; i < results.size(); i++) {
             ASSERT_EQ(results[i].first, expected[i].first);
             ASSERT_EQ(results[i].second, expected[i].second);
         }
@@ -689,7 +689,7 @@ static void test_md5() {
 static void test_span_constructor() {
     run_test("construct from span", []() {
         auto data = make_minimal_pe32();
-        PE pe{std::span<const std::uint8_t>(data)};
+        PE pe{std::span<const uint8_t>(data)};
         ASSERT_EQ(pe.dos_header().e_magic, 0x5A4D);
     });
 }

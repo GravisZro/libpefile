@@ -2,81 +2,86 @@
 
 #include <cstdint>
 #include <cstring>
-#include <string>
-#include <vector>
-#include <span>
-#include <unordered_map>
 #include <functional>
+#include <span>
+#include <string>
+#include <unordered_map>
 #include <variant>
+#include <vector>
 
-namespace pefile {
+namespace pefile
+{
 
-struct StructureField {
+  struct StructureField
+  {
     std::string name;
     std::string format;
-    std::size_t size = 0;
+    size_t size = 0;
     bool is_union = false;
     std::vector<std::string> union_names;
-};
+  };
 
-class Structure {
-public:
+  class Structure
+  {
+  public:
     Structure() = default;
 
     explicit Structure(const std::string& name,
                        std::vector<StructureField> fields,
-                       std::size_t file_offset = 0)
-        : name_(name), fields_(std::move(fields)), file_offset_(file_offset) {
-        compute_offsets();
+                       size_t file_offset = 0)
+        : m_name(name), m_fields(std::move(fields)), m_file_offset(file_offset)
+    {
+      compute_offsets();
     }
 
-    void unpack(std::span<const std::uint8_t> data);
-    std::vector<std::uint8_t> pack() const;
+    void unpack(std::span<const uint8_t> data);
+    std::vector<uint8_t> pack() const;
 
-    const std::string& name() const { return name_; }
-    std::size_t sizeof_structure() const { return format_length_; }
-    std::size_t file_offset() const { return file_offset_; }
-    void set_file_offset(std::size_t offset) { file_offset_ = offset; }
+    const std::string& name() const { return m_name; }
+    size_t sizeof_structure() const { return m_format_length; }
+    size_t file_offset() const { return m_file_offset; }
+    void set_file_offset(size_t offset) { m_file_offset = offset; }
 
-    std::size_t get_field_absolute_offset(const std::string& field_name) const;
-    std::size_t get_field_relative_offset(const std::string& field_name) const;
+    size_t get_field_absolute_offset(const std::string& field_name) const;
+    size_t get_field_relative_offset(const std::string& field_name) const;
 
-    std::int64_t get(const std::string& field_name) const;
-    void set(const std::string& field_name, std::int64_t value);
+    int64_t get(const std::string& field_name) const;
+    void set(const std::string& field_name, int64_t value);
     std::string get_string(const std::string& field_name) const;
     void set_string(const std::string& field_name, const std::string& value);
 
     bool all_zeroes() const;
     std::vector<std::string> dump(int indentation = 0) const;
-    std::unordered_map<std::string, std::int64_t> dump_dict() const;
+    std::unordered_map<std::string, int64_t> dump_dict() const;
 
-    const std::vector<StructureField>& fields() const { return fields_; }
+    const std::vector<StructureField>& fields() const { return m_fields; }
 
-private:
+  private:
     void compute_offsets();
-    std::size_t parse_format_size(const std::string& fmt) const;
+    size_t parse_format_size(const std::string& fmt) const;
 
-    std::string name_;
-    std::vector<StructureField> fields_;
-    std::size_t file_offset_ = 0;
-    std::size_t format_length_ = 0;
-    std::unordered_map<std::string, std::size_t> field_offsets_;
-    std::vector<std::uint8_t> data_;
-};
+    std::string m_name;
+    std::vector<StructureField> m_fields;
+    size_t m_file_offset = 0;
+    size_t m_format_length = 0;
+    std::unordered_map<std::string, size_t> m_field_offsets;
+    std::vector<uint8_t> m_data;
+  };
 
-class StructureWithBitfields : public Structure {
-public:
+  class StructureWithBitfields : public Structure
+  {
+  public:
     using Structure::Structure;
 
-    void unpack(std::span<const std::uint8_t> data);
-    std::vector<std::uint8_t> pack() const;
+    void unpack(std::span<const uint8_t> data);
+    std::vector<uint8_t> pack() const;
 
-private:
+  private:
     void unpack_bitfield_attributes();
     void pack_bitfield_attributes();
 
-    std::unordered_map<std::string, std::size_t> extended_keys_;
-    std::vector<std::pair<std::string, std::vector<std::string>>> compound_fields_;
-};
+    std::unordered_map<std::string, size_t> m_extended_keys;
+    std::vector<std::pair<std::string, std::vector<std::string> > > m_compound_fields;
+  };
 
 } // namespace pefile
