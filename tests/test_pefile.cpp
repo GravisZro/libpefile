@@ -564,6 +564,41 @@ static void test_exports_inline() {
     });
 }
 
+static void test_exports64_inline() {
+    run_test("PE64 inline exports parsing", []() {
+        std::vector<std::uint8_t> data(PE64_EXPORTS, PE64_EXPORTS + sizeof(PE64_EXPORTS));
+        for (std::size_t i = 0; i < 29; i++) {
+            data[0x228 + 4 * i] = 0x01;
+        }
+        PE pe(data);
+
+        auto exp = pe.exports();
+        ASSERT_TRUE(exp.has_value());
+        auto& exp_syms = exp->symbols;
+        ASSERT_TRUE(exp_syms.size() > 0);
+
+        std::vector<std::pair<std::uint32_t, std::string>> results;
+        for (auto& e : exp_syms) {
+            results.push_back({e.ordinal, e.name});
+        }
+
+        std::vector<std::pair<std::uint32_t, std::string>> expected = {
+            {1, "TST!"}, {2, "TST\""}, {3, "TST#"}, {4, "TST$"}, {5, "TST%"},
+            {6, "TST&"}, {7, "TST'"}, {8, "TST("}, {9, "TST)"}, {10, "TST*"},
+            {11, "TST+"}, {12, "TST,"}, {13, "TST-"}, {14, "TST."}, {15, "TST/"},
+            {16, "TST:"}, {17, "TST<"}, {18, "TST>"}, {19, "TST?"}, {20, "TST["},
+            {21, "TST\\"}, {22, "TST]"}, {23, "TST^"}, {24, "TST_"}, {25, "TST`"},
+            {26, "TST{"}, {27, "TST|"}, {28, "TST}"}, {29, "TST~"},
+        };
+
+        ASSERT_EQ(results.size(), expected.size());
+        for (std::size_t i = 0; i < results.size(); i++) {
+            ASSERT_EQ(results[i].first, expected[i].first);
+            ASSERT_EQ(results[i].second, expected[i].second);
+        }
+    });
+}
+
 // ============================================================================
 // File-based tests
 // ============================================================================
@@ -680,6 +715,7 @@ int main() {
     test_multi_section();
     test_rva_data_access();
     test_exports_inline();
+    test_exports64_inline();
     test_file_operations();
     test_driver_detection();
     test_md5();
