@@ -160,6 +160,8 @@ void PE::parse() {
 
     parse_sections(sections_offset);
 
+    rich_header_ = parse_rich_header();
+
     if (pe_type_ == OPTIONAL_HEADER_MAGIC_PE) {
         auto ep = optional_header_32_.AddressOfEntryPoint;
         if (ep != 0 && get_section_by_rva(ep).has_value()) {
@@ -1588,6 +1590,12 @@ std::string PE::dump_info() const {
     ss << "  NumberOfSections: " << std::dec << file_header_.NumberOfSections << "\n";
     ss << "  Characteristics: 0x" << std::hex << file_header_.Characteristics << "\n";
 
+    if (rich_header_) {
+        ss << "\nRich Header:\n";
+        ss << "  Checksum: 0x" << std::hex << rich_header_->checksum << "\n";
+        ss << "  Values: " << std::dec << rich_header_->values.size() << " pairs\n";
+    }
+
     ss << "\nSections:\n";
     for (auto& s : sections_) {
         ss << "  " << s.name() << ": VA=0x" << std::hex << s.VirtualAddress
@@ -1602,9 +1610,65 @@ std::string PE::dump_info() const {
         }
     }
 
+    if (!delay_imports_.empty()) {
+        ss << "\nDelay Imports:\n";
+        for (auto& imp : delay_imports_) {
+            ss << "  " << imp.dll << " (" << imp.imports.size() << " symbols)\n";
+        }
+    }
+
     if (exports_) {
         ss << "\nExports:\n";
         ss << "  " << exports_->name << " (" << exports_->symbols.size() << " symbols)\n";
+    }
+
+    if (!relocations_.empty()) {
+        ss << "\nRelocations:\n";
+        std::size_t total_entries = 0;
+        for (auto& r : relocations_) total_entries += r.entries.size();
+        ss << "  " << relocations_.size() << " blocks (" << total_entries << " entries)\n";
+    }
+
+    if (tls_data_) {
+        ss << "\nTLS:\n";
+        ss << "  StartAddressOfRawData: 0x" << std::hex << tls_data_->start_address_of_raw_data << "\n";
+        ss << "  AddressOfIndex: 0x" << tls_data_->address_of_index << "\n";
+    }
+
+    if (load_config_data_) {
+        ss << "\nLoad Config:\n";
+        ss << "  Size: " << std::dec << load_config_data_->size << "\n";
+        ss << "  GuardFlags: 0x" << std::hex << load_config_data_->guard_flags << "\n";
+    }
+
+    if (version_info_) {
+        ss << "\nVersion Info:\n";
+        ss << "  Signature: 0x" << std::hex << version_info_->signature << "\n";
+        ss << "  FileOS: 0x" << version_info_->file_os << "\n";
+        ss << "  FileType: 0x" << version_info_->file_type << "\n";
+        if (!version_info_->strings.empty()) {
+            ss << "  Strings:\n";
+            for (auto& [k, v] : version_info_->strings) {
+                ss << "    " << k << ": " << v << "\n";
+            }
+        }
+    }
+
+    if (!resources_.empty()) {
+        ss << "\nResources:\n";
+        for (auto& res_dir : resources_) {
+            ss << "  " << res_dir.entries.size() << " top-level entries\n";
+        }
+    }
+
+    if (!exceptions_.empty()) {
+        ss << "\nExceptions:\n";
+        ss << "  " << exceptions_.size() << " entries\n";
+    }
+
+    if (!bound_imports_.empty()) {
+        ss << "\nBound Imports:\n";
+        ss << "  " << bound_imports_.size() << " entries\n";
     }
 
     if (!warnings_.empty()) {
@@ -1638,6 +1702,79 @@ std::vector<std::string> PE::get_resources_strings() const {
         }
     }
     return result;
+}
+
+std::optional<RichHeaderData> PE::parse_rich_header() {
+    constexpr std::uint32_t DANS = 0x536E6144;
+    constexpr std::uint32_t RICH = 0x68636952;
+
+    auto optional_header_end = static_cast<std::size_t>(dos_header_.e_lfanew) + 4 + 20 +
+                               file_header_.SizeOfOptionalHeader;
+    auto search_end = std::min(optional_header_end, data_size_);
+
+    if (search_end < 0x80) return std::nullopt;
+
+    const std::uint8_t rich_tag_bytes[] = { 0x52, 0x69, 0x63, 0x68 };
+    std::size_t rich_index = 0;
+    for (std::size_t i = 0x80; i + 4 <= search_end; i++) {
+        if (std::memcmp(data_.data() + i, rich_tag_bytes, 4) == 0) {
+            rich_index = i;
+            break;
+        }
+    }
+    if (rich_index == 0) return std::nullopt;
+
+    std::size_t block_len = rich_index + 8 - 0x80;
+    block_len = 4 * (block_len / 4);
+    if (block_len == 0) return std::nullopt;
+
+    std::vector<std::uint32_t> data(block_len / 4);
+    for (std::size_t i = 0; i < data.size(); i++) {
+        std::memcpy(&data[i], data_.data() + 0x80 + i * 4, 4);
+    }
+
+    auto rich_pos = std::find(data.begin(), data.end(), RICH);
+    if (rich_pos == data.end()) return std::nullopt;
+
+    std::uint32_t checksum = *(rich_pos + 1);
+
+    RichHeaderData result;
+    result.checksum = checksum;
+    result.raw_data.assign(data_.data() + 0x80, data_.data() + 0x80 + rich_index - 0x80);
+
+    result.clear_data.resize(rich_index - 0x80);
+    for (std::size_t i = 0; i + 3 < result.raw_data.size(); i += 4) {
+        std::uint32_t val;
+        std::memcpy(&val, result.raw_data.data() + i, 4);
+        val ^= checksum;
+        std::memcpy(result.clear_data.data() + i, &val, 4);
+    }
+
+    auto dans_pos = data.begin();
+    if (data.size() >= 4) {
+        if (data[0] != (DANS ^ checksum) ||
+            data[1] != checksum ||
+            data[2] != checksum ||
+            data[3] != checksum) {
+            add_warning("Rich Header is not in Microsoft format, possibly malformed");
+        }
+    }
+
+    auto after_dans = dans_pos + 4;
+    auto end_pos = rich_pos;
+    for (auto it = after_dans; it + 1 < end_pos; it += 2) {
+        result.values.push_back({*it ^ checksum, *(it + 1) ^ checksum});
+    }
+
+    return result;
+}
+
+std::string PE::get_rich_header_hash() const {
+    if (!rich_header_ || rich_header_->clear_data.empty()) return "";
+
+    MD5 md5;
+    md5.update(rich_header_->clear_data);
+    return md5.hexdigest();
 }
 
 } // namespace pefile

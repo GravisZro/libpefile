@@ -186,6 +186,13 @@ struct DynamicRelocationData {
     std::uint32_t symbol = 0;
 };
 
+struct RichHeaderData {
+    std::uint32_t checksum = 0;
+    std::vector<std::uint8_t> raw_data;
+    std::vector<std::uint8_t> clear_data;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> values;
+};
+
 struct VersionInfo {
     std::string name;
     std::uint32_t signature = 0;

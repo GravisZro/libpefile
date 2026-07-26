@@ -59,6 +59,9 @@ public:
     std::string get_imphash() const;
     std::string get_exphash() const;
 
+    std::optional<RichHeaderData> parse_rich_header();
+    std::string get_rich_header_hash() const;
+
     std::vector<std::string> get_warnings() const { return warnings_; }
     void show_warnings() const;
 
@@ -106,6 +109,7 @@ public:
     const std::vector<ExceptionsDirEntryData>& exceptions() const { return exceptions_; }
     const std::optional<LoadConfigData>& load_config_data() const { return load_config_data_; }
     const std::optional<VersionInfo>& version_info() const { return version_info_; }
+    const std::optional<RichHeaderData>& rich_header() const { return rich_header_; }
     const std::vector<ResourceDirData>& resources() const { return resources_; }
     const std::vector<DelayImportDescData>& delay_imports() const { return delay_imports_; }
 
@@ -158,6 +162,7 @@ private:
     std::vector<ExceptionsDirEntryData> exceptions_;
     std::optional<LoadConfigData> load_config_data_;
     std::optional<VersionInfo> version_info_;
+    std::optional<RichHeaderData> rich_header_;
     std::vector<ResourceDirData> resources_;
     std::vector<BoundImportDescData> bound_imports_;
     std::vector<DelayImportDescData> delay_imports_;
