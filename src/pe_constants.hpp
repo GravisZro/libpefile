@@ -21,6 +21,7 @@ constexpr std::uint32_t MAX_RESOURCE_DEPTH = 32;
 constexpr std::uint32_t MAX_SYMBOL_EXPORT_COUNT = 0x2000;
 constexpr std::uint32_t MIN_VALID_FILE_ALIGNMENT = 0x200;
 constexpr std::uint32_t SECTOR_SIZE = 0x200;
+constexpr std::uint32_t VS_VERSION_INFO_MAGIC_LEN = 6;
 
 constexpr std::uint16_t IMAGE_DOS_SIGNATURE = 0x5A4D;
 constexpr std::uint16_t IMAGE_DOSZM_SIGNATURE = 0x4D5A;
@@ -352,6 +353,10 @@ inline bool is_valid_function_name(std::string_view s, bool /*relax_allowed_char
     return std::all_of(s.begin(), s.end(), [](char c) {
         return allowed_function_name.find(c) != std::string_view::npos;
     });
+}
+
+inline std::uint32_t dword_align(std::uint32_t offset, std::uint32_t base) {
+    return ((offset + base + 3) & 0xFFFFFFFC) - (base & 0xFFFFFFFC);
 }
 
 inline std::string human_readable_size(std::uint64_t value) {

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <memory>
 #include <optional>
@@ -26,6 +27,12 @@ struct ImportData {
 };
 
 struct ImportDescData {
+    std::string dll;
+    std::vector<ImportData> imports;
+    std::uint32_t struct_offset = 0;
+};
+
+struct DelayImportDescData {
     std::string dll;
     std::vector<ImportData> imports;
     std::uint32_t struct_offset = 0;
@@ -121,6 +128,57 @@ struct ExceptionsDirEntryData {
 struct LoadConfigData {
     std::uint32_t struct_offset = 0;
     std::uint32_t size = 0;
+    std::uint32_t time_date_stamp = 0;
+    std::uint16_t major_version = 0;
+    std::uint16_t minor_version = 0;
+    std::uint32_t global_flags_clear = 0;
+    std::uint32_t global_flags_set = 0;
+    std::uint32_t critical_section_default_timeout = 0;
+    std::uint64_t de_commit_free_block_threshold = 0;
+    std::uint64_t de_commit_total_free_threshold = 0;
+    std::uint64_t lock_prefix_table = 0;
+    std::uint64_t maximum_allocation_size = 0;
+    std::uint64_t virtual_memory_threshold = 0;
+    std::uint64_t process_affinity_mask = 0;
+    std::uint32_t process_heap_flags = 0;
+    std::uint16_t csd_version = 0;
+    std::uint16_t dependent_load_flags = 0;
+    std::uint64_t edit_list = 0;
+    std::uint64_t security_cookie = 0;
+    std::uint64_t se_handler_table = 0;
+    std::uint64_t se_handler_count = 0;
+    std::uint64_t guard_cf_check_function_pointer = 0;
+    std::uint64_t guard_cf_dispatch_function_pointer = 0;
+    std::uint64_t guard_cf_function_table = 0;
+    std::uint64_t guard_cf_function_count = 0;
+    std::uint32_t guard_flags = 0;
+    std::uint16_t code_integrity_flags = 0;
+    std::uint16_t code_integrity_catalog = 0;
+    std::uint32_t code_integrity_catalog_offset = 0;
+    std::uint32_t code_integrity_reserved = 0;
+    std::uint64_t guard_address_taken_iat_entry_table = 0;
+    std::uint64_t guard_address_taken_iat_entry_count = 0;
+    std::uint64_t guard_long_jump_target_table = 0;
+    std::uint64_t guard_long_jump_target_count = 0;
+    std::uint64_t dynamic_value_reloc_table = 0;
+    std::uint64_t chpe_metadata_pointer = 0;
+    std::uint64_t guard_rf_failure_routine = 0;
+    std::uint64_t guard_rf_failure_routine_function_pointer = 0;
+    std::uint32_t dynamic_value_reloc_table_offset = 0;
+    std::uint16_t dynamic_value_reloc_table_section = 0;
+    std::uint16_t reserved2 = 0;
+    std::uint64_t guard_rf_verify_stack_pointer_function_pointer = 0;
+    std::uint32_t hot_patch_table_offset = 0;
+    std::uint32_t reserved3 = 0;
+    std::uint64_t enclave_configuration_pointer = 0;
+    std::uint64_t volatile_metadata_pointer = 0;
+    std::uint64_t guard_eh_continuation_table = 0;
+    std::uint64_t guard_eh_continuation_count = 0;
+    std::uint64_t guard_xfg_check_function_pointer = 0;
+    std::uint64_t guard_xfg_dispatch_function_pointer = 0;
+    std::uint64_t guard_xfg_table_dispatch_function_pointer = 0;
+    std::uint64_t cast_guard_os_determined_failure_mode = 0;
+    std::uint64_t guard_memcpy_function_pointer = 0;
 };
 
 struct DynamicRelocationData {

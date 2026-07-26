@@ -10,6 +10,7 @@
 #include <functional>
 
 #include "ordlookup.hpp"
+#include "md5.hpp"
 
 namespace pefile {
 
@@ -22,456 +23,7 @@ constexpr std::size_t MAX_ADDRESS_SPREAD = 128 * 1024 * 1024;
 constexpr std::uint64_t ADDR_4GB = 0x100000000ULL;
 }
 
-// --- DosHeader ---
-DosHeader DosHeader::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    DosHeader h;
-    if (data.size() - offset < 64) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.e_magic, p, 2); p += 2;
-    std::memcpy(&h.e_cblp, p, 2); p += 2;
-    std::memcpy(&h.e_cp, p, 2); p += 2;
-    std::memcpy(&h.e_crlc, p, 2); p += 2;
-    std::memcpy(&h.e_cparhdr, p, 2); p += 2;
-    std::memcpy(&h.e_minalloc, p, 2); p += 2;
-    std::memcpy(&h.e_maxalloc, p, 2); p += 2;
-    std::memcpy(&h.e_ss, p, 2); p += 2;
-    std::memcpy(&h.e_sp, p, 2); p += 2;
-    std::memcpy(&h.e_csum, p, 2); p += 2;
-    std::memcpy(&h.e_ip, p, 2); p += 2;
-    std::memcpy(&h.e_cs, p, 2); p += 2;
-    std::memcpy(&h.e_lfarlc, p, 2); p += 2;
-    std::memcpy(&h.e_ovno, p, 2); p += 2;
-    std::memcpy(h.e_res, p, 8); p += 8;
-    std::memcpy(&h.e_oemid, p, 2); p += 2;
-    std::memcpy(&h.e_oeminfo, p, 2); p += 2;
-    std::memcpy(h.e_res2, p, 20); p += 20;
-    std::memcpy(&h.e_lfanew, p, 4);
-    return h;
-}
-
-std::vector<std::uint8_t> DosHeader::pack() const {
-    std::vector<std::uint8_t> r(64, 0);
-    auto p = r.data();
-    std::memcpy(p, &e_magic, 2); p += 2;
-    std::memcpy(p, &e_cblp, 2); p += 2;
-    std::memcpy(p, &e_cp, 2); p += 2;
-    std::memcpy(p, &e_crlc, 2); p += 2;
-    std::memcpy(p, &e_cparhdr, 2); p += 2;
-    std::memcpy(p, &e_minalloc, 2); p += 2;
-    std::memcpy(p, &e_maxalloc, 2); p += 2;
-    std::memcpy(p, &e_ss, 2); p += 2;
-    std::memcpy(p, &e_sp, 2); p += 2;
-    std::memcpy(p, &e_csum, 2); p += 2;
-    std::memcpy(p, &e_ip, 2); p += 2;
-    std::memcpy(p, &e_cs, 2); p += 2;
-    std::memcpy(p, &e_lfarlc, 2); p += 2;
-    std::memcpy(p, &e_ovno, 2); p += 2;
-    std::memcpy(p, e_res, 8); p += 8;
-    std::memcpy(p, &e_oemid, 2); p += 2;
-    std::memcpy(p, &e_oeminfo, 2); p += 2;
-    std::memcpy(p, e_res2, 20); p += 20;
-    std::memcpy(p, &e_lfanew, 4);
-    return r;
-}
-
-// --- FileHeader ---
-FileHeader FileHeader::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    FileHeader h;
-    if (data.size() - offset < 20) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Machine, p, 2); p += 2;
-    std::memcpy(&h.NumberOfSections, p, 2); p += 2;
-    std::memcpy(&h.TimeDateStamp, p, 4); p += 4;
-    std::memcpy(&h.PointerToSymbolTable, p, 4); p += 4;
-    std::memcpy(&h.NumberOfSymbols, p, 4); p += 4;
-    std::memcpy(&h.SizeOfOptionalHeader, p, 2); p += 2;
-    std::memcpy(&h.Characteristics, p, 2);
-    return h;
-}
-
-std::vector<std::uint8_t> FileHeader::pack() const {
-    std::vector<std::uint8_t> r(20, 0);
-    auto p = r.data();
-    std::memcpy(p, &Machine, 2); p += 2;
-    std::memcpy(p, &NumberOfSections, 2); p += 2;
-    std::memcpy(p, &TimeDateStamp, 4); p += 4;
-    std::memcpy(p, &PointerToSymbolTable, 4); p += 4;
-    std::memcpy(p, &NumberOfSymbols, 4); p += 4;
-    std::memcpy(p, &SizeOfOptionalHeader, 2); p += 2;
-    std::memcpy(p, &Characteristics, 2);
-    return r;
-}
-
-// --- DataDirectory ---
-DataDirectory DataDirectory::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    DataDirectory d;
-    if (data.size() - offset < 8) return d;
-    auto p = data.data() + offset;
-    std::memcpy(&d.VirtualAddress, p, 4); p += 4;
-    std::memcpy(&d.Size, p, 4);
-    return d;
-}
-
-std::vector<std::uint8_t> DataDirectory::pack() const {
-    std::vector<std::uint8_t> r(8, 0);
-    std::memcpy(r.data(), &VirtualAddress, 4);
-    std::memcpy(r.data() + 4, &Size, 4);
-    return r;
-}
-
-// --- OptionalHeader32 ---
-OptionalHeader32 OptionalHeader32::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    OptionalHeader32 h;
-    if (data.size() - offset < 96) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Magic, p, 2); p += 2;
-    h.MajorLinkerVersion = *p++; h.MinorLinkerVersion = *p++;
-    std::memcpy(&h.SizeOfCode, p, 4); p += 4;
-    std::memcpy(&h.SizeOfInitializedData, p, 4); p += 4;
-    std::memcpy(&h.SizeOfUninitializedData, p, 4); p += 4;
-    std::memcpy(&h.AddressOfEntryPoint, p, 4); p += 4;
-    std::memcpy(&h.BaseOfCode, p, 4); p += 4;
-    std::memcpy(&h.BaseOfData, p, 4); p += 4;
-    std::memcpy(&h.ImageBase, p, 4); p += 4;
-    std::memcpy(&h.SectionAlignment, p, 4); p += 4;
-    std::memcpy(&h.FileAlignment, p, 4); p += 4;
-    std::memcpy(&h.MajorOperatingSystemVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorOperatingSystemVersion, p, 2); p += 2;
-    std::memcpy(&h.MajorImageVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorImageVersion, p, 2); p += 2;
-    std::memcpy(&h.MajorSubsystemVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorSubsystemVersion, p, 2); p += 2;
-    std::memcpy(&h.Win32VersionValue, p, 4); p += 4;
-    std::memcpy(&h.SizeOfImage, p, 4); p += 4;
-    std::memcpy(&h.SizeOfHeaders, p, 4); p += 4;
-    std::memcpy(&h.CheckSum, p, 4); p += 4;
-    std::memcpy(&h.Subsystem, p, 2); p += 2;
-    std::memcpy(&h.DllCharacteristics, p, 2); p += 2;
-    std::memcpy(&h.SizeOfStackReserve, p, 4); p += 4;
-    std::memcpy(&h.SizeOfStackCommit, p, 4); p += 4;
-    std::memcpy(&h.SizeOfHeapReserve, p, 4); p += 4;
-    std::memcpy(&h.SizeOfHeapCommit, p, 4); p += 4;
-    std::memcpy(&h.LoaderFlags, p, 4); p += 4;
-    std::memcpy(&h.NumberOfRvaAndSizes, p, 4);
-    return h;
-}
-
-std::vector<std::uint8_t> OptionalHeader32::pack() const {
-    std::vector<std::uint8_t> r(96, 0);
-    auto p = r.data();
-    std::memcpy(p, &Magic, 2); p += 2;
-    *p++ = MajorLinkerVersion; *p++ = MinorLinkerVersion;
-    std::memcpy(p, &SizeOfCode, 4); p += 4;
-    std::memcpy(p, &SizeOfInitializedData, 4); p += 4;
-    std::memcpy(p, &SizeOfUninitializedData, 4); p += 4;
-    std::memcpy(p, &AddressOfEntryPoint, 4); p += 4;
-    std::memcpy(p, &BaseOfCode, 4); p += 4;
-    std::memcpy(p, &BaseOfData, 4); p += 4;
-    std::memcpy(p, &ImageBase, 4); p += 4;
-    std::memcpy(p, &SectionAlignment, 4); p += 4;
-    std::memcpy(p, &FileAlignment, 4); p += 4;
-    std::memcpy(p, &MajorOperatingSystemVersion, 2); p += 2;
-    std::memcpy(p, &MinorOperatingSystemVersion, 2); p += 2;
-    std::memcpy(p, &MajorImageVersion, 2); p += 2;
-    std::memcpy(p, &MinorImageVersion, 2); p += 2;
-    std::memcpy(p, &MajorSubsystemVersion, 2); p += 2;
-    std::memcpy(p, &MinorSubsystemVersion, 2); p += 2;
-    std::memcpy(p, &Win32VersionValue, 4); p += 4;
-    std::memcpy(p, &SizeOfImage, 4); p += 4;
-    std::memcpy(p, &SizeOfHeaders, 4); p += 4;
-    std::memcpy(p, &CheckSum, 4); p += 4;
-    std::memcpy(p, &Subsystem, 2); p += 2;
-    std::memcpy(p, &DllCharacteristics, 2); p += 2;
-    std::memcpy(p, &SizeOfStackReserve, 4); p += 4;
-    std::memcpy(p, &SizeOfStackCommit, 4); p += 4;
-    std::memcpy(p, &SizeOfHeapReserve, 4); p += 4;
-    std::memcpy(p, &SizeOfHeapCommit, 4); p += 4;
-    std::memcpy(p, &LoaderFlags, 4); p += 4;
-    std::memcpy(p, &NumberOfRvaAndSizes, 4);
-    return r;
-}
-
-// --- OptionalHeader64 ---
-OptionalHeader64 OptionalHeader64::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    OptionalHeader64 h;
-    if (data.size() - offset < 112) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Magic, p, 2); p += 2;
-    h.MajorLinkerVersion = *p++; h.MinorLinkerVersion = *p++;
-    std::memcpy(&h.SizeOfCode, p, 4); p += 4;
-    std::memcpy(&h.SizeOfInitializedData, p, 4); p += 4;
-    std::memcpy(&h.SizeOfUninitializedData, p, 4); p += 4;
-    std::memcpy(&h.AddressOfEntryPoint, p, 4); p += 4;
-    std::memcpy(&h.BaseOfCode, p, 4); p += 4;
-    std::memcpy(&h.ImageBase, p, 8); p += 8;
-    std::memcpy(&h.SectionAlignment, p, 4); p += 4;
-    std::memcpy(&h.FileAlignment, p, 4); p += 4;
-    std::memcpy(&h.MajorOperatingSystemVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorOperatingSystemVersion, p, 2); p += 2;
-    std::memcpy(&h.MajorImageVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorImageVersion, p, 2); p += 2;
-    std::memcpy(&h.MajorSubsystemVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorSubsystemVersion, p, 2); p += 2;
-    std::memcpy(&h.Win32VersionValue, p, 4); p += 4;
-    std::memcpy(&h.SizeOfImage, p, 4); p += 4;
-    std::memcpy(&h.SizeOfHeaders, p, 4); p += 4;
-    std::memcpy(&h.CheckSum, p, 4); p += 4;
-    std::memcpy(&h.Subsystem, p, 2); p += 2;
-    std::memcpy(&h.DllCharacteristics, p, 2); p += 2;
-    std::memcpy(&h.SizeOfStackReserve, p, 8); p += 8;
-    std::memcpy(&h.SizeOfStackCommit, p, 8); p += 8;
-    std::memcpy(&h.SizeOfHeapReserve, p, 8); p += 8;
-    std::memcpy(&h.SizeOfHeapCommit, p, 8); p += 8;
-    std::memcpy(&h.LoaderFlags, p, 4); p += 4;
-    std::memcpy(&h.NumberOfRvaAndSizes, p, 4);
-    return h;
-}
-
-std::vector<std::uint8_t> OptionalHeader64::pack() const {
-    std::vector<std::uint8_t> r(112, 0);
-    auto p = r.data();
-    std::memcpy(p, &Magic, 2); p += 2;
-    *p++ = MajorLinkerVersion; *p++ = MinorLinkerVersion;
-    std::memcpy(p, &SizeOfCode, 4); p += 4;
-    std::memcpy(p, &SizeOfInitializedData, 4); p += 4;
-    std::memcpy(p, &SizeOfUninitializedData, 4); p += 4;
-    std::memcpy(p, &AddressOfEntryPoint, 4); p += 4;
-    std::memcpy(p, &BaseOfCode, 4); p += 4;
-    std::memcpy(p, &ImageBase, 8); p += 8;
-    std::memcpy(p, &SectionAlignment, 4); p += 4;
-    std::memcpy(p, &FileAlignment, 4); p += 4;
-    std::memcpy(p, &MajorOperatingSystemVersion, 2); p += 2;
-    std::memcpy(p, &MinorOperatingSystemVersion, 2); p += 2;
-    std::memcpy(p, &MajorImageVersion, 2); p += 2;
-    std::memcpy(p, &MinorImageVersion, 2); p += 2;
-    std::memcpy(p, &MajorSubsystemVersion, 2); p += 2;
-    std::memcpy(p, &MinorSubsystemVersion, 2); p += 2;
-    std::memcpy(p, &Win32VersionValue, 4); p += 4;
-    std::memcpy(p, &SizeOfImage, 4); p += 4;
-    std::memcpy(p, &SizeOfHeaders, 4); p += 4;
-    std::memcpy(p, &CheckSum, 4); p += 4;
-    std::memcpy(p, &Subsystem, 2); p += 2;
-    std::memcpy(p, &DllCharacteristics, 2); p += 2;
-    std::memcpy(p, &SizeOfStackReserve, 8); p += 8;
-    std::memcpy(p, &SizeOfStackCommit, 8); p += 8;
-    std::memcpy(p, &SizeOfHeapReserve, 8); p += 8;
-    std::memcpy(p, &SizeOfHeapCommit, 8); p += 8;
-    std::memcpy(p, &LoaderFlags, 4); p += 4;
-    std::memcpy(p, &NumberOfRvaAndSizes, 4);
-    return r;
-}
-
-// --- SectionHeader ---
-SectionHeader SectionHeader::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    SectionHeader h{};
-    if (data.size() - offset < 40) return h;
-    auto p = data.data() + offset;
-    std::memcpy(h.Name, p, 8); p += 8;
-    std::memcpy(&h.Misc, p, 4); p += 4;
-    std::memcpy(&h.VirtualAddress, p, 4); p += 4;
-    std::memcpy(&h.SizeOfRawData, p, 4); p += 4;
-    std::memcpy(&h.PointerToRawData, p, 4); p += 4;
-    std::memcpy(&h.PointerToRelocations, p, 4); p += 4;
-    std::memcpy(&h.PointerToLinenumbers, p, 4); p += 4;
-    std::memcpy(&h.NumberOfRelocations, p, 2); p += 2;
-    std::memcpy(&h.NumberOfLinenumbers, p, 2); p += 2;
-    std::memcpy(&h.Characteristics, p, 4);
-    h.VirtualSize = h.Misc;
-    return h;
-}
-
-std::vector<std::uint8_t> SectionHeader::pack() const {
-    std::vector<std::uint8_t> r(40, 0);
-    auto p = r.data();
-    std::memcpy(p, Name, 8); p += 8;
-    std::memcpy(p, &Misc, 4); p += 4;
-    std::memcpy(p, &VirtualAddress, 4); p += 4;
-    std::memcpy(p, &SizeOfRawData, 4); p += 4;
-    std::memcpy(p, &PointerToRawData, 4); p += 4;
-    std::memcpy(p, &PointerToRelocations, 4); p += 4;
-    std::memcpy(p, &PointerToLinenumbers, 4); p += 4;
-    std::memcpy(p, &NumberOfRelocations, 2); p += 2;
-    std::memcpy(p, &NumberOfLinenumbers, 2); p += 2;
-    std::memcpy(p, &Characteristics, 4);
-    return r;
-}
-
-// --- ImageImportDescriptor ---
-ImageImportDescriptor ImageImportDescriptor::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageImportDescriptor h{};
-    if (data.size() - offset < 20) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.OriginalFirstThunk, p, 4); p += 4;
-    std::memcpy(&h.TimeDateStamp, p, 4); p += 4;
-    std::memcpy(&h.ForwarderChain, p, 4); p += 4;
-    std::memcpy(&h.Name, p, 4); p += 4;
-    std::memcpy(&h.FirstThunk, p, 4);
-    return h;
-}
-
-std::vector<std::uint8_t> ImageImportDescriptor::pack() const {
-    std::vector<std::uint8_t> r(20, 0);
-    auto p = r.data();
-    std::memcpy(p, &OriginalFirstThunk, 4); p += 4;
-    std::memcpy(p, &TimeDateStamp, 4); p += 4;
-    std::memcpy(p, &ForwarderChain, 4); p += 4;
-    std::memcpy(p, &Name, 4); p += 4;
-    std::memcpy(p, &FirstThunk, 4);
-    return r;
-}
-
-// --- ImageExportDirectory ---
-ImageExportDirectory ImageExportDirectory::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageExportDirectory h{};
-    if (data.size() - offset < 40) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Characteristics, p, 4); p += 4;
-    std::memcpy(&h.TimeDateStamp, p, 4); p += 4;
-    std::memcpy(&h.MajorVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorVersion, p, 2); p += 2;
-    std::memcpy(&h.Name, p, 4); p += 4;
-    std::memcpy(&h.Base, p, 4); p += 4;
-    std::memcpy(&h.NumberOfFunctions, p, 4); p += 4;
-    std::memcpy(&h.NumberOfNames, p, 4); p += 4;
-    std::memcpy(&h.AddressOfFunctions, p, 4); p += 4;
-    std::memcpy(&h.AddressOfNames, p, 4); p += 4;
-    std::memcpy(&h.AddressOfNameOrdinals, p, 4);
-    return h;
-}
-
-std::vector<std::uint8_t> ImageExportDirectory::pack() const {
-    std::vector<std::uint8_t> r(40, 0);
-    auto p = r.data();
-    std::memcpy(p, &Characteristics, 4); p += 4;
-    std::memcpy(p, &TimeDateStamp, 4); p += 4;
-    std::memcpy(p, &MajorVersion, 2); p += 2;
-    std::memcpy(p, &MinorVersion, 2); p += 2;
-    std::memcpy(p, &Name, 4); p += 4;
-    std::memcpy(p, &Base, 4); p += 4;
-    std::memcpy(p, &NumberOfFunctions, 4); p += 4;
-    std::memcpy(p, &NumberOfNames, 4); p += 4;
-    std::memcpy(p, &AddressOfFunctions, 4); p += 4;
-    std::memcpy(p, &AddressOfNames, 4); p += 4;
-    std::memcpy(p, &AddressOfNameOrdinals, 4);
-    return r;
-}
-
-// --- ImageResourceDirectory ---
-ImageResourceDirectory ImageResourceDirectory::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageResourceDirectory h{};
-    if (data.size() - offset < 16) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Characteristics, p, 4); p += 4;
-    std::memcpy(&h.TimeDateStamp, p, 4); p += 4;
-    std::memcpy(&h.MajorVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorVersion, p, 2); p += 2;
-    std::memcpy(&h.NumberOfNamedEntries, p, 4); p += 4;
-    std::memcpy(&h.NumberOfIdEntries, p, 4);
-    return h;
-}
-
-// --- ImageResourceDirectoryEntry ---
-ImageResourceDirectoryEntry ImageResourceDirectoryEntry::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageResourceDirectoryEntry h{};
-    if (data.size() - offset < 8) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Name, p, 4); p += 4;
-    std::memcpy(&h.OffsetToData, p, 4);
-    return h;
-}
-
-// --- ImageResourceDataEntry ---
-ImageResourceDataEntry ImageResourceDataEntry::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageResourceDataEntry h{};
-    if (data.size() - offset < 16) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.OffsetToData, p, 4); p += 4;
-    std::memcpy(&h.Size, p, 4); p += 4;
-    std::memcpy(&h.CodePage, p, 4); p += 4;
-    std::memcpy(&h.Reserved, p, 4);
-    return h;
-}
-
-// --- ImageThunkData32/64 ---
-ImageThunkData32 ImageThunkData32::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageThunkData32 h{};
-    if (data.size() - offset < 4) return h;
-    std::memcpy(&h.AddressOfData, data.data() + offset, 4);
-    return h;
-}
-
-ImageThunkData64 ImageThunkData64::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageThunkData64 h{};
-    if (data.size() - offset < 8) return h;
-    std::memcpy(&h.AddressOfData, data.data() + offset, 8);
-    return h;
-}
-
-// --- ImageDebugDirectory ---
-ImageDebugDirectory ImageDebugDirectory::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageDebugDirectory h{};
-    if (data.size() - offset < 28) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.Characteristics, p, 4); p += 4;
-    std::memcpy(&h.TimeDateStamp, p, 4); p += 4;
-    std::memcpy(&h.MajorVersion, p, 2); p += 2;
-    std::memcpy(&h.MinorVersion, p, 2); p += 2;
-    std::memcpy(&h.Type, p, 4); p += 4;
-    std::memcpy(&h.SizeOfData, p, 4); p += 4;
-    std::memcpy(&h.AddressOfRawData, p, 4); p += 4;
-    std::memcpy(&h.PointerToRawData, p, 4);
-    return h;
-}
-
-// --- ImageBaseRelocation ---
-ImageBaseRelocation ImageBaseRelocation::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageBaseRelocation h{};
-    if (data.size() - offset < 8) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.VirtualAddress, p, 4); p += 4;
-    std::memcpy(&h.SizeOfBlock, p, 4);
-    return h;
-}
-
-// --- ImageTlsDirectory32/64 ---
-ImageTlsDirectory32 ImageTlsDirectory32::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageTlsDirectory32 h{};
-    if (data.size() - offset < 24) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.StartAddressOfRawData, p, 4); p += 4;
-    std::memcpy(&h.EndAddressOfRawData, p, 4); p += 4;
-    std::memcpy(&h.AddressOfIndex, p, 4); p += 4;
-    std::memcpy(&h.AddressOfCallBacks, p, 4); p += 4;
-    std::memcpy(&h.SizeOfZeroFill, p, 4); p += 4;
-    std::memcpy(&h.Characteristics, p, 4);
-    return h;
-}
-
-ImageTlsDirectory64 ImageTlsDirectory64::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    ImageTlsDirectory64 h{};
-    if (data.size() - offset < 40) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.StartAddressOfRawData, p, 8); p += 8;
-    std::memcpy(&h.EndAddressOfRawData, p, 8); p += 8;
-    std::memcpy(&h.AddressOfIndex, p, 8); p += 8;
-    std::memcpy(&h.AddressOfCallBacks, p, 8); p += 8;
-    std::memcpy(&h.SizeOfZeroFill, p, 4); p += 4;
-    std::memcpy(&h.Characteristics, p, 4);
-    return h;
-}
-
-// --- RuntimeFunction ---
-RuntimeFunction RuntimeFunction::parse(std::span<const std::uint8_t> data, std::size_t offset) {
-    RuntimeFunction h{};
-    if (data.size() - offset < 12) return h;
-    auto p = data.data() + offset;
-    std::memcpy(&h.BeginAddress, p, 4); p += 4;
-    std::memcpy(&h.EndAddress, p, 4); p += 4;
-    std::memcpy(&h.UnwindData, p, 4);
-    return h;
-}
-
-// --- UnwindInfo ---
+// UnwindInfo parse (variable-size struct)
 UnwindInfo UnwindInfo::parse(std::span<const std::uint8_t> data, std::size_t offset) {
     UnwindInfo h{};
     if (data.size() - offset < 4) return h;
@@ -544,8 +96,7 @@ void PE::parse() {
         throw PEFormatError("Invalid NT headers offset");
     }
 
-    std::uint32_t signature = 0;
-    std::memcpy(&signature, data_.data() + nt_headers_offset, 4);
+    std::uint32_t signature = read_packed<std::uint32_t>(data_, nt_headers_offset);
 
     if ((0xFFFF & signature) == IMAGE_NE_SIGNATURE)
         throw PEFormatError("Invalid NT Headers signature. Probably a NE file");
@@ -578,12 +129,7 @@ void PE::parse() {
         pe_type_ = OPTIONAL_HEADER_MAGIC_PE;
     } else if (optional_header_32_.Magic == OPTIONAL_HEADER_MAGIC_PE_PLUS) {
         pe_type_ = OPTIONAL_HEADER_MAGIC_PE_PLUS;
-        if (optional_header_offset + 112 <= data_size_) {
-            auto oh_data = std::span<const std::uint8_t>(
-                data_.data() + optional_header_offset,
-                std::min<std::size_t>(256, data_size_ - optional_header_offset));
-            optional_header_64_ = OptionalHeader64::parse(oh_data, 0);
-        }
+        optional_header_64_ = read_packed<OptionalHeader64>(data_, optional_header_offset);
     } else {
         add_warning("Invalid type in Optional Header: 0x" +
             std::to_string(optional_header_32_.Magic));
@@ -902,6 +448,9 @@ bool PE::has_relocs() const {
 }
 
 bool PE::has_dynamic_relocs() const {
+    if (load_config_data_ && load_config_data_->dynamic_value_reloc_table != 0) {
+        return true;
+    }
     return false;
 }
 
@@ -1104,6 +653,21 @@ void PE::parse_data_directories() {
         data_directories_[static_cast<std::size_t>(DirectoryEntry::BOUND_IMPORT)].VirtualAddress) {
         auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::BOUND_IMPORT)];
         bound_imports_ = parse_directory_bound_imports(dir.VirtualAddress, dir.Size);
+    }
+
+    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::RESOURCE) &&
+        data_directories_[static_cast<std::size_t>(DirectoryEntry::RESOURCE)].VirtualAddress) {
+        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::RESOURCE)];
+        auto result = parse_resources_directory(dir.VirtualAddress, dir.Size);
+        if (result) {
+            resources_.push_back(*result);
+        }
+    }
+
+    if (data_directories_.size() > static_cast<std::size_t>(DirectoryEntry::DELAY_IMPORT) &&
+        data_directories_[static_cast<std::size_t>(DirectoryEntry::DELAY_IMPORT)].VirtualAddress) {
+        auto& dir = data_directories_[static_cast<std::size_t>(DirectoryEntry::DELAY_IMPORT)];
+        delay_imports_ = parse_delay_import_directory(dir.VirtualAddress, dir.Size);
     }
 }
 
@@ -1450,6 +1014,190 @@ std::optional<LoadConfigData> PE::parse_directory_load_config(std::uint32_t rva,
     std::uint32_t lc_size = get_dword_at_rva(rva);
     lc.size = lc_size;
 
+    auto offset = get_offset_from_rva(rva);
+    if (offset + lc_size > data_size_) return lc;
+
+    if (is_pe32_plus()) {
+        if (lc_size >= 40) {
+            lc.time_date_stamp = get_dword_at_rva(rva + 4);
+            lc.major_version = get_word_at_rva(rva + 8);
+            lc.minor_version = get_word_at_rva(rva + 10);
+            lc.global_flags_clear = get_dword_at_rva(rva + 12);
+            lc.global_flags_set = get_dword_at_rva(rva + 16);
+            lc.critical_section_default_timeout = get_dword_at_rva(rva + 20);
+            lc.de_commit_free_block_threshold = get_qword_at_rva(rva + 24);
+            lc.de_commit_total_free_threshold = get_qword_at_rva(rva + 32);
+        }
+        if (lc_size >= 68) {
+            lc.lock_prefix_table = get_qword_at_rva(rva + 40);
+            lc.maximum_allocation_size = get_qword_at_rva(rva + 48);
+            lc.virtual_memory_threshold = get_qword_at_rva(rva + 56);
+            lc.process_affinity_mask = get_qword_at_rva(rva + 64);
+        }
+        if (lc_size >= 72) {
+            lc.process_heap_flags = get_dword_at_rva(rva + 72);
+        }
+        if (lc_size >= 76) {
+            lc.csd_version = get_word_at_rva(rva + 76);
+            lc.dependent_load_flags = get_word_at_rva(rva + 78);
+        }
+        if (lc_size >= 88) {
+            lc.edit_list = get_qword_at_rva(rva + 80);
+            lc.security_cookie = get_qword_at_rva(rva + 88);
+        }
+        if (lc_size >= 104) {
+            lc.se_handler_table = get_qword_at_rva(rva + 96);
+            lc.se_handler_count = get_qword_at_rva(rva + 104);
+        }
+        if (lc_size >= 120) {
+            lc.guard_cf_check_function_pointer = get_qword_at_rva(rva + 112);
+            lc.guard_cf_dispatch_function_pointer = get_qword_at_rva(rva + 120);
+        }
+        if (lc_size >= 136) {
+            lc.guard_cf_function_table = get_qword_at_rva(rva + 128);
+            lc.guard_cf_function_count = get_qword_at_rva(rva + 136);
+        }
+        if (lc_size >= 140) {
+            lc.guard_flags = get_dword_at_rva(rva + 140);
+        }
+        if (lc_size >= 152) {
+            lc.code_integrity_flags = get_word_at_rva(rva + 144);
+            lc.code_integrity_catalog = get_word_at_rva(rva + 146);
+            lc.code_integrity_catalog_offset = get_dword_at_rva(rva + 148);
+            lc.code_integrity_reserved = get_dword_at_rva(rva + 152);
+        }
+        if (lc_size >= 168) {
+            lc.guard_address_taken_iat_entry_table = get_qword_at_rva(rva + 156);
+            lc.guard_address_taken_iat_entry_count = get_qword_at_rva(rva + 164);
+        }
+        if (lc_size >= 184) {
+            lc.guard_long_jump_target_table = get_qword_at_rva(rva + 172);
+            lc.guard_long_jump_target_count = get_qword_at_rva(rva + 180);
+        }
+        if (lc_size >= 200) {
+            lc.dynamic_value_reloc_table = get_qword_at_rva(rva + 188);
+            lc.chpe_metadata_pointer = get_qword_at_rva(rva + 196);
+        }
+        if (lc_size >= 216) {
+            lc.guard_rf_failure_routine = get_qword_at_rva(rva + 204);
+            lc.guard_rf_failure_routine_function_pointer = get_qword_at_rva(rva + 212);
+        }
+        if (lc_size >= 224) {
+            lc.dynamic_value_reloc_table_offset = get_dword_at_rva(rva + 220);
+            lc.dynamic_value_reloc_table_section = get_word_at_rva(rva + 224);
+            lc.reserved2 = get_word_at_rva(rva + 226);
+        }
+        if (lc_size >= 240) {
+            lc.guard_rf_verify_stack_pointer_function_pointer = get_qword_at_rva(rva + 228);
+            lc.hot_patch_table_offset = get_dword_at_rva(rva + 236);
+        }
+        if (lc_size >= 248) {
+            lc.reserved3 = get_dword_at_rva(rva + 240);
+        }
+        if (lc_size >= 264) {
+            lc.enclave_configuration_pointer = get_qword_at_rva(rva + 248);
+            lc.volatile_metadata_pointer = get_qword_at_rva(rva + 256);
+        }
+        if (lc_size >= 280) {
+            lc.guard_eh_continuation_table = get_qword_at_rva(rva + 264);
+            lc.guard_eh_continuation_count = get_qword_at_rva(rva + 272);
+        }
+        if (lc_size >= 296) {
+            lc.guard_xfg_check_function_pointer = get_qword_at_rva(rva + 280);
+            lc.guard_xfg_dispatch_function_pointer = get_qword_at_rva(rva + 288);
+        }
+        if (lc_size >= 312) {
+            lc.guard_xfg_table_dispatch_function_pointer = get_qword_at_rva(rva + 296);
+            lc.cast_guard_os_determined_failure_mode = get_qword_at_rva(rva + 304);
+        }
+        if (lc_size >= 320) {
+            lc.guard_memcpy_function_pointer = get_qword_at_rva(rva + 312);
+        }
+    } else {
+        if (lc_size >= 40) {
+            lc.time_date_stamp = get_dword_at_rva(rva + 4);
+            lc.major_version = get_word_at_rva(rva + 8);
+            lc.minor_version = get_word_at_rva(rva + 10);
+            lc.global_flags_clear = get_dword_at_rva(rva + 12);
+            lc.global_flags_set = get_dword_at_rva(rva + 16);
+            lc.critical_section_default_timeout = get_dword_at_rva(rva + 20);
+            lc.de_commit_free_block_threshold = get_dword_at_rva(rva + 24);
+            lc.de_commit_total_free_threshold = get_dword_at_rva(rva + 28);
+            lc.lock_prefix_table = get_dword_at_rva(rva + 32);
+            lc.maximum_allocation_size = get_dword_at_rva(rva + 36);
+            lc.virtual_memory_threshold = get_dword_at_rva(rva + 40);
+        }
+        if (lc_size >= 52) {
+            lc.process_affinity_mask = get_dword_at_rva(rva + 44);
+            lc.process_heap_flags = get_dword_at_rva(rva + 48);
+        }
+        if (lc_size >= 56) {
+            lc.csd_version = get_word_at_rva(rva + 52);
+            lc.dependent_load_flags = get_word_at_rva(rva + 54);
+        }
+        if (lc_size >= 64) {
+            lc.edit_list = get_dword_at_rva(rva + 56);
+            lc.security_cookie = get_dword_at_rva(rva + 60);
+        }
+        if (lc_size >= 72) {
+            lc.se_handler_table = get_dword_at_rva(rva + 64);
+            lc.se_handler_count = get_dword_at_rva(rva + 68);
+        }
+        if (lc_size >= 80) {
+            lc.guard_cf_check_function_pointer = get_dword_at_rva(rva + 72);
+            lc.guard_cf_dispatch_function_pointer = get_dword_at_rva(rva + 76);
+        }
+        if (lc_size >= 88) {
+            lc.guard_cf_function_table = get_dword_at_rva(rva + 80);
+            lc.guard_cf_function_count = get_dword_at_rva(rva + 84);
+        }
+        if (lc_size >= 92) {
+            lc.guard_flags = get_dword_at_rva(rva + 88);
+        }
+        if (lc_size >= 100) {
+            lc.code_integrity_flags = get_word_at_rva(rva + 92);
+            lc.code_integrity_catalog = get_word_at_rva(rva + 94);
+            lc.code_integrity_catalog_offset = get_dword_at_rva(rva + 96);
+            lc.code_integrity_reserved = get_dword_at_rva(rva + 100);
+        }
+        if (lc_size >= 108) {
+            lc.guard_address_taken_iat_entry_table = get_dword_at_rva(rva + 104);
+            lc.guard_address_taken_iat_entry_count = get_dword_at_rva(rva + 108);
+        }
+        if (lc_size >= 116) {
+            lc.guard_long_jump_target_table = get_dword_at_rva(rva + 112);
+            lc.guard_long_jump_target_count = get_dword_at_rva(rva + 116);
+        }
+        if (lc_size >= 124) {
+            lc.dynamic_value_reloc_table = get_dword_at_rva(rva + 120);
+            lc.chpe_metadata_pointer = get_dword_at_rva(rva + 124);
+        }
+        if (lc_size >= 132) {
+            lc.guard_rf_failure_routine = get_dword_at_rva(rva + 128);
+            lc.guard_rf_failure_routine_function_pointer = get_dword_at_rva(rva + 132);
+        }
+        if (lc_size >= 140) {
+            lc.dynamic_value_reloc_table_offset = get_dword_at_rva(rva + 136);
+            lc.dynamic_value_reloc_table_section = get_word_at_rva(rva + 140);
+            lc.reserved2 = get_word_at_rva(rva + 142);
+        }
+        if (lc_size >= 148) {
+            lc.guard_rf_verify_stack_pointer_function_pointer = get_dword_at_rva(rva + 144);
+            lc.hot_patch_table_offset = get_dword_at_rva(rva + 148);
+        }
+        if (lc_size >= 152) {
+            lc.reserved3 = get_dword_at_rva(rva + 152);
+        }
+        if (lc_size >= 160) {
+            lc.enclave_configuration_pointer = get_dword_at_rva(rva + 156);
+            lc.volatile_metadata_pointer = get_dword_at_rva(rva + 160);
+        }
+        if (lc_size >= 168) {
+            lc.guard_eh_continuation_table = get_dword_at_rva(rva + 164);
+            lc.guard_eh_continuation_count = get_dword_at_rva(rva + 168);
+        }
+    }
+
     return lc;
 }
 
@@ -1489,7 +1237,279 @@ std::vector<BoundImportDescData> PE::parse_directory_bound_imports(std::uint32_t
 }
 
 std::optional<VersionInfo> PE::parse_version_information(std::uint32_t rva) {
-    return std::nullopt;
+    auto start_offset = get_offset_from_rva(rva);
+    if (start_offset >= data_size_) return std::nullopt;
+
+    // Read VS_VERSIONINFO header: Length(u16), ValueLength(u16), Type(u16)
+    if (start_offset + 6 > data_size_) return std::nullopt;
+    std::uint16_t length = get_word_at_offset(start_offset);
+    std::uint16_t value_length = get_word_at_offset(start_offset + 2);
+
+    if (length == 0 || length > data_size_ - start_offset) return std::nullopt;
+
+    std::string key = get_string_u_at_rva(rva + 6);
+    if (key != "VS_VERSION_INFO") return std::nullopt;
+
+    VersionInfo vi;
+    vi.name = key;
+
+    // VS_FIXEDFILEINFO follows the key, dword-aligned
+    auto ffi_offset = dword_align(6 + 2 * (static_cast<std::uint32_t>(key.size()) + 1), rva);
+    auto ffi_abs = start_offset + ffi_offset;
+
+    // Verify the magic signature for VS_FIXEDFILEINFO
+    if (ffi_abs + 4 <= data_size_) {
+        std::uint32_t signature = get_dword_at_offset(ffi_abs);
+        if (signature == 0xFEEF04BD) {
+            if (value_length >= 52 || value_length == 0) {
+                auto abs = ffi_abs;
+                if (abs + 52 <= data_size_) {
+                    vi.signature = signature;
+                    vi.struct_version = get_word_at_offset(abs + 8) | (get_word_at_offset(abs + 10) << 16);
+                    vi.version_ms = get_dword_at_offset(abs + 12);
+                    vi.version_ls = get_dword_at_offset(abs + 16);
+                    vi.product_version_ms = get_dword_at_offset(abs + 20);
+                    vi.product_version_ls = get_dword_at_offset(abs + 24);
+                    vi.file_flags_mask = get_dword_at_offset(abs + 28);
+                    vi.file_flags = get_dword_at_offset(abs + 32);
+                    vi.file_os = get_dword_at_offset(abs + 36);
+                    vi.file_type = get_dword_at_offset(abs + 40);
+                    vi.file_subtype = get_dword_at_offset(abs + 44);
+                    vi.file_date_ms = get_dword_at_offset(abs + 48);
+                    vi.file_date_ls = get_dword_at_offset(abs + 52);
+                }
+            }
+        }
+    }
+
+    // Parse StringFileInfo and VarFileInfo blocks
+    auto stringfileinfo_offset = dword_align(
+        ffi_offset + (value_length ? value_length : 52), rva);
+
+    while (start_offset + stringfileinfo_offset + 6 <= data_size_) {
+        auto sf_offset = start_offset + stringfileinfo_offset;
+        std::uint16_t sf_length = get_word_at_offset(sf_offset);
+        if (sf_length == 0 || sf_offset + sf_length > data_size_) break;
+
+        std::uint16_t sf_value_length = get_word_at_offset(sf_offset + 2);
+        std::string sf_key = get_string_u_at_rva(get_rva_from_offset(sf_offset + 6));
+
+        if (sf_key.starts_with("StringFileInfo") && sf_value_length == 0) {
+            auto st_offset = dword_align(
+                stringfileinfo_offset + 6 + 2 * (static_cast<std::uint32_t>(sf_key.size()) + 1), rva);
+
+            while (start_offset + st_offset + 6 <= data_size_ &&
+                   st_offset < stringfileinfo_offset + sf_length) {
+                auto st_abs = start_offset + st_offset;
+                std::uint16_t st_length = get_word_at_offset(st_abs);
+                if (st_length == 0 || st_abs + st_length > data_size_) break;
+
+                std::string st_key = get_string_u_at_rva(get_rva_from_offset(st_abs + 6));
+
+                // Parse individual String entries within the StringTable
+                auto str_offset = dword_align(
+                    st_offset + 6 + 2 * (static_cast<std::uint32_t>(st_key.size()) + 1), rva);
+
+                while (start_offset + str_offset + 6 <= data_size_ &&
+                       str_offset < st_offset + st_length) {
+                    auto str_abs = start_offset + str_offset;
+                    std::uint16_t str_length = get_word_at_offset(str_abs);
+                    std::uint16_t str_value_length = get_word_at_offset(str_abs + 2);
+                    if (str_length == 0 || str_abs + str_length > data_size_) break;
+
+                    auto str_key_offset = str_abs + 6;
+                    std::string str_key = get_string_u_at_rva(
+                        get_rva_from_offset(str_key_offset));
+
+                    if (!str_key.empty() && str_value_length > 0) {
+                        auto val_rva = get_rva_from_offset(dword_align(
+                            str_offset + 6 + 2 * (static_cast<std::uint32_t>(str_key.size()) + 1), rva));
+                        std::string val = get_string_u_at_rva(val_rva, str_value_length);
+                        vi.strings[str_key] = val;
+                    }
+
+                    str_offset = dword_align(str_offset + str_length, rva);
+                }
+
+                st_offset = dword_align(st_offset + st_length, rva);
+            }
+        }
+
+        stringfileinfo_offset = dword_align(stringfileinfo_offset + sf_length, rva);
+    }
+
+    return vi;
+}
+
+std::vector<DelayImportDescData> PE::parse_delay_import_directory(std::uint32_t rva, std::uint32_t size) {
+    std::vector<DelayImportDescData> import_descs;
+    std::size_t desc_size = 32;
+    std::size_t error_count = 0;
+
+    while (true) {
+        if (rva + desc_size > data_size_) break;
+
+        auto import_desc = ImageDelayImportDescriptor::parse(data_, rva);
+        if (import_desc.all_zeroes()) break;
+
+        std::uint32_t int_rva = import_desc.DelayINT;
+        std::uint32_t iat_rva = import_desc.DelayIAT;
+
+        if (import_desc.grAttrs() == 0 &&
+            file_header_.Machine == static_cast<std::uint16_t>(MachineType::I386)) {
+            auto image_base = optional_header_32_.ImageBase;
+            int_rva = (int_rva != 0) ? int_rva - image_base : 0;
+            iat_rva = (iat_rva != 0) ? iat_rva - image_base : 0;
+        }
+
+        rva += desc_size;
+
+        auto file_offset = get_offset_from_rva(rva);
+        std::uint32_t max_len = static_cast<std::uint32_t>(data_size_) - file_offset;
+        if (rva > int_rva || rva > iat_rva) {
+            max_len = std::max(
+                rva - int_rva,
+                rva - iat_rva);
+        }
+
+        std::vector<ImportData> import_data;
+        try {
+            import_data = parse_imports(int_rva, iat_rva, 0, max_len);
+        } catch (const PEFormatError& e) {
+            add_warning("Error parsing the Delay import directory. "
+                "Invalid import data at RVA: 0x" + std::to_string(rva) +
+                " (" + e.what() + ")");
+        }
+
+        if (error_count > 5) {
+            add_warning("Too many errors parsing the Delay import directory. "
+                "Invalid import data at RVA: 0x" + std::to_string(rva));
+            break;
+        }
+
+        if (import_data.empty()) {
+            error_count++;
+            continue;
+        }
+
+        std::string dll = get_string_at_rva(import_desc.Name, MAX_DLL_LENGTH);
+        if (!is_valid_dos_filename(dll)) dll = "*invalid*";
+
+        if (!dll.empty()) {
+            for (auto& symbol : import_data) {
+                if (symbol.name.empty()) {
+                    auto funcname = ordlookup::ordinal_lookup(dll, symbol.ordinal);
+                    if (!funcname.empty()) {
+                        symbol.name = funcname;
+                        symbol.name_from_ordinal = true;
+                    }
+                }
+            }
+            DelayImportDescData desc;
+            desc.dll = dll;
+            desc.imports = std::move(import_data);
+            desc.struct_offset = static_cast<std::uint32_t>(rva - desc_size);
+            import_descs.push_back(std::move(desc));
+        }
+    }
+
+    return import_descs;
+}
+
+std::optional<ImageResourceDataEntry> PE::parse_resource_data_entry(std::uint32_t rva) {
+    if (rva + 16 > data_size_) return std::nullopt;
+    return ImageResourceDataEntry::parse(data_, rva);
+}
+
+std::optional<ResourceDirData> PE::parse_resources_directory(
+    std::uint32_t rva, std::uint32_t size, std::uint32_t base_rva,
+    int level, std::vector<std::uint32_t> dirs) {
+
+    if (level > static_cast<int>(MAX_RESOURCE_DEPTH)) {
+        add_warning("Error parsing the resources directory. "
+            "Excessively nested table depth " + std::to_string(level));
+        return std::nullopt;
+    }
+
+    if (rva + 16 > data_size_) {
+        add_warning("Invalid resources directory. Can't read directory data at RVA: 0x" +
+            std::to_string(rva));
+        return std::nullopt;
+    }
+
+    if (base_rva == 0) base_rva = rva;
+
+    auto resource_dir = ImageResourceDirectory::parse(data_, rva);
+    std::uint32_t number_of_entries = resource_dir.NumberOfNamedEntries +
+                                      resource_dir.NumberOfIdEntries;
+
+    if (number_of_entries > MAX_ALLOWED_RESOURCE_ENTRIES) {
+        add_warning("Error parsing the resources directory. "
+            "The directory contains " + std::to_string(number_of_entries) + " entries");
+        return std::nullopt;
+    }
+
+    std::uint32_t entry_rva = rva + 16;
+    std::vector<ResourceDirEntryData> dir_entries;
+
+    for (std::uint32_t idx = 0; idx < number_of_entries; idx++) {
+        if (entry_rva + 8 > data_size_) break;
+
+        auto res = ImageResourceDirectoryEntry::parse(data_, entry_rva);
+
+        std::string entry_name;
+        std::uint32_t entry_id = 0;
+
+        if (res.is_name()) {
+            auto name_offset = base_rva + res.name_id();
+            entry_name = get_string_u_at_rva(name_offset, 256);
+        } else {
+            entry_id = res.Name & 0xFFFF;
+        }
+
+        if (res.is_directory()) {
+            auto subdir_rva = base_rva + res.offset();
+
+            bool cycle = false;
+            for (auto d : dirs) {
+                if (d == subdir_rva) { cycle = true; break; }
+            }
+            if (cycle) break;
+
+            dirs.push_back(subdir_rva);
+            auto subdir = parse_resources_directory(
+                subdir_rva, size - (rva - base_rva), base_rva, level + 1, dirs);
+
+            if (subdir) {
+                dir_entries.push_back(ResourceDirEntryData{
+                    entry_rva, entry_name, entry_id,
+                    std::make_shared<ResourceDirData>(*subdir), nullptr});
+            } else {
+                break;
+            }
+        } else {
+            auto data_entry_rva = base_rva + res.offset();
+            auto data_entry = parse_resource_data_entry(data_entry_rva);
+
+            if (data_entry) {
+                auto entry_data = std::make_shared<ResourceDataEntryData>();
+                entry_data->struct_offset = data_entry_rva;
+                entry_data->lang = res.Name & 0x3FF;
+                entry_data->sublang = res.Name >> 10;
+                entry_data->data_rva = data_entry->OffsetToData;
+                entry_data->size = data_entry->Size;
+
+                dir_entries.push_back(ResourceDirEntryData{
+                    entry_rva, entry_name, entry_id, nullptr, entry_data});
+            } else {
+                break;
+            }
+        }
+
+        entry_rva += 8;
+    }
+
+    return ResourceDirData{rva, std::move(dir_entries)};
 }
 
 std::string PE::get_imphash() const {
@@ -1500,6 +1520,17 @@ std::string PE::get_imphash() const {
         std::string libname = entry.dll;
         std::transform(libname.begin(), libname.end(), libname.begin(),
             [](unsigned char c) { return std::tolower(c); });
+
+        std::string ext;
+        auto dot_pos = libname.rfind('.');
+        if (dot_pos != std::string::npos) {
+            ext = libname.substr(dot_pos + 1);
+        }
+
+        std::string base_name = libname;
+        if (ext == "ocx" || ext == "sys" || ext == "dll") {
+            base_name = libname.substr(0, dot_pos);
+        }
 
         for (auto& imp : entry.imports) {
             std::string funcname;
@@ -1514,13 +1545,13 @@ std::string PE::get_imphash() const {
                 [](unsigned char c) { return std::tolower(c); });
 
             if (!result.empty()) result += ",";
-            result += libname + "." + funcname;
+            result += base_name + "." + funcname;
         }
     }
 
-    // Simple MD5 implementation using OpenSSL-like approach
-    // For a real implementation, you'd use a crypto library
-    return result;
+    MD5 md5;
+    md5.update(result);
+    return md5.hexdigest();
 }
 
 std::string PE::get_exphash() const {
@@ -1534,7 +1565,11 @@ std::string PE::get_exphash() const {
             [](unsigned char c) { return std::tolower(c); });
         result += name;
     }
-    return result;
+    if (result.empty()) return "";
+
+    MD5 md5;
+    md5.update(result);
+    return md5.hexdigest();
 }
 
 void PE::show_warnings() const {
@@ -1580,6 +1615,29 @@ std::string PE::dump_info() const {
     }
 
     return ss.str();
+}
+
+std::vector<std::string> PE::get_resources_strings() const {
+    std::vector<std::string> result;
+    for (auto& res_dir : resources_) {
+        for (auto& entry : res_dir.entries) {
+            if (entry.directory) {
+                for (auto& sub_entry : entry.directory->entries) {
+                    if (sub_entry.data_entry && sub_entry.id == static_cast<std::uint32_t>(ResourceType::STRING)) {
+                        auto rva = sub_entry.data_entry->data_rva;
+                        auto size = sub_entry.data_entry->size;
+                        if (rva + size <= data_size_) {
+                            auto str = get_string_u_at_rva(rva, size / 2);
+                            if (!str.empty()) {
+                                result.push_back(str);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return result;
 }
 
 } // namespace pefile

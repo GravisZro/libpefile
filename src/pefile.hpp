@@ -64,6 +64,8 @@ public:
 
     std::string dump_info() const;
 
+    std::vector<std::string> get_resources_strings() const;
+
     std::uint8_t get_byte_at_rva(std::uint32_t rva) const;
     std::uint16_t get_word_at_rva(std::uint32_t rva) const;
     std::uint32_t get_dword_at_rva(std::uint32_t rva) const;
@@ -105,6 +107,7 @@ public:
     const std::optional<LoadConfigData>& load_config_data() const { return load_config_data_; }
     const std::optional<VersionInfo>& version_info() const { return version_info_; }
     const std::vector<ResourceDirData>& resources() const { return resources_; }
+    const std::vector<DelayImportDescData>& delay_imports() const { return delay_imports_; }
 
     std::uint32_t pe_type() const { return pe_type_; }
 
@@ -126,6 +129,11 @@ private:
     std::optional<LoadConfigData> parse_directory_load_config(std::uint32_t rva, std::uint32_t size);
     std::vector<BoundImportDescData> parse_directory_bound_imports(std::uint32_t rva, std::uint32_t size);
     std::optional<VersionInfo> parse_version_information(std::uint32_t rva);
+    std::vector<DelayImportDescData> parse_delay_import_directory(std::uint32_t rva, std::uint32_t size);
+    std::optional<ResourceDirData> parse_resources_directory(std::uint32_t rva, std::uint32_t size = 0,
+                                                            std::uint32_t base_rva = 0, int level = 0,
+                                                            std::vector<std::uint32_t> dirs = {});
+    std::optional<ImageResourceDataEntry> parse_resource_data_entry(std::uint32_t rva);
 
     const SectionHeader* find_section_for_rva(std::uint32_t rva) const;
     const SectionHeader* find_section_for_offset(std::uint32_t offset) const;
@@ -152,6 +160,7 @@ private:
     std::optional<VersionInfo> version_info_;
     std::vector<ResourceDirData> resources_;
     std::vector<BoundImportDescData> bound_imports_;
+    std::vector<DelayImportDescData> delay_imports_;
 
     std::uint32_t pe_type_ = 0;
     std::uint32_t overlay_offset_ = 0;
