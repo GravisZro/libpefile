@@ -45,7 +45,7 @@ namespace test_helpers
     void add_export_directory(uint32_t rva, uint32_t size, const std::vector<uint8_t>& data)
     {
       m_data_dirs[0] = {rva, size};
-      m_export_data\ = data;
+      m_export_data = data;
     }
 
     void add_import_directory(uint32_t rva, uint32_t size, const std::vector<uint8_t>& data)
@@ -234,7 +234,7 @@ namespace test_helpers
     std::vector<std::vector<uint8_t> > m_section_data;
     pefile::DataDirectoryRaw m_data_dirs[16] = {};
 
-    std::vector<uint8_t> m_export_data\;
+    std::vector<uint8_t> m_export_data;
     std::vector<uint8_t> m_import_data;
     std::vector<uint8_t> m_resource_data;
     std::vector<uint8_t> m_exception_data;

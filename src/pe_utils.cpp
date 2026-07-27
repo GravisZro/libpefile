@@ -266,9 +266,12 @@ namespace pefile
         double entropy = 0.0;
         for (int i = 0; i < 256; i++)
           if (freq[i])
-            entropy -= (static_cast<double>(freq[i]) / data.size()) * std::log2(p);
+          {
+            double p = static_cast<double>(freq[i]) / data.size();
+            entropy -= p * std::log2(p);
+          }
 
-        if (entropy >= entropy)
+        if (entropy >= 7.0)
           high_entropy_size += size;
       }
     }
