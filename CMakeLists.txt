@@ -128,3 +128,19 @@ target_compile_definitions(test_pefile_regression PRIVATE
 )
 
 add_test(NAME pefile_regression_tests COMMAND test_pefile_regression)
+
+# ----------------------------------------------------------------------------
+# Resource export test (uses real PE binaries from tests/testdata/)
+# ----------------------------------------------------------------------------
+add_executable(test_resource_export
+    tests/test_resource_export.cpp
+)
+target_link_libraries(test_resource_export PRIVATE pefile)
+target_compile_options(test_resource_export PRIVATE
+    -Wall -Wextra -Wpedantic -Wno-unused-parameter
+)
+target_compile_definitions(test_resource_export PRIVATE
+    PEFILE_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/tests/testdata"
+)
+
+add_test(NAME resource_export_tests COMMAND test_resource_export)

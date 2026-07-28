@@ -262,8 +262,8 @@ namespace pefile
     uint32_t TimeDateStamp = 0;
     uint16_t MajorVersion = 0;
     uint16_t MinorVersion = 0;
-    uint32_t NumberOfNamedEntries = 0;
-    uint32_t NumberOfIdEntries = 0;
+    uint16_t NumberOfNamedEntries = 0;
+    uint16_t NumberOfIdEntries = 0;
 
     static ImageResourceDirectory parse(std::span<const uint8_t> data, size_t offset)
     {
@@ -402,14 +402,25 @@ namespace pefile
     }
   };
 
+  struct [[gnu::packed]] RuntimeFunctionX64
+  {
+    uint32_t BeginAddress = 0;
+    uint32_t UnwindData = 0;
+
+    static RuntimeFunctionX64 parse(std::span<const uint8_t> data, size_t offset)
+    {
+      return read_packed<RuntimeFunctionX64>(data, offset);
+    }
+  };
+
   struct [[gnu::packed]] UnwindInfoRaw
   {
-    uint8_t Version = 0;
-    uint8_t Flags = 0;
+    uint8_t Version : 3 = 0;
+    uint8_t Flags : 5 = 0;
     uint8_t SizeOfProlog = 0;
     uint8_t CountOfCodes = 0;
-    uint8_t FrameRegister = 0;
-    uint8_t FrameOffset = 0;
+    uint8_t FrameRegister : 4 = 0;
+    uint8_t FrameOffset : 4 = 0;
   };
 
   struct UnwindInfo : UnwindInfoRaw

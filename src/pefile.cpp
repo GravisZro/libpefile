@@ -31,15 +31,14 @@ namespace pefile
     if (data.size() - offset < 4)
       return h;
     auto p = data.data() + offset;
-    h.Version = *p++;
-    h.Flags = *p++;
+    uint8_t b0 = *p++;
+    h.Version = b0 & 0x07;
+    h.Flags = (b0 >> 3) & 0x1F;
     h.SizeOfProlog = *p++;
     h.CountOfCodes = *p++;
-    if (data.size() - offset >= 6)
-    {
-      h.FrameRegister = *p++;
-      h.FrameOffset = *p++;
-    }
+    uint8_t b3 = *p++;
+    h.FrameRegister = b3 & 0x0F;
+    h.FrameOffset = (b3 >> 4) & 0x0F;
     for (int i = 0; i < h.CountOfCodes && (p - data.data()) + 2 <= static_cast<long long>(data.size()); i++)
     {
       uint16_t code;
@@ -1468,26 +1467,38 @@ namespace pefile
   {
     std::vector<ExceptionsDirEntryData> result;
 
-    if (m_file_header.Machine != static_cast<uint16_t>(MachineType::AMD64)
-        && m_file_header.Machine != static_cast<uint16_t>(MachineType::IA64))
-    {
-      return result;
-    }
+    bool is_x64 = m_file_header.Machine == static_cast<uint16_t>(MachineType::AMD64);
+    bool is_arm64 = m_file_header.Machine == static_cast<uint16_t>(MachineType::ARM64);
+    bool is_ia64 = m_file_header.Machine == static_cast<uint16_t>(MachineType::IA64);
 
-    size_t rf_size = 12;
+    if (!is_x64 && !is_arm64 && !is_ia64)
+      return result;
+
+    size_t rf_size = is_x64 ? 8 : 12;
     uint32_t end = rva + size;
 
     while (rva + rf_size <= end && rva + rf_size <= m_data_size)
     {
-      auto rf = RuntimeFunction::parse(m_data, get_offset_from_rva(rva));
+      auto offset = get_offset_from_rva(rva);
 
       ExceptionsDirEntryData entry;
       entry.struct_offset = rva;
-      entry.begin_address = rf.BeginAddress;
-      entry.end_address = rf.EndAddress;
-      entry.unwind_data = rf.UnwindData;
-      result.push_back(entry);
 
+      if (is_x64)
+      {
+        auto rf = RuntimeFunctionX64::parse(m_data, offset);
+        entry.begin_address = rf.BeginAddress;
+        entry.unwind_data = rf.UnwindData;
+      }
+      else
+      {
+        auto rf = RuntimeFunction::parse(m_data, offset);
+        entry.begin_address = rf.BeginAddress;
+        entry.end_address = rf.EndAddress;
+        entry.unwind_data = rf.UnwindData;
+      }
+
+      result.push_back(entry);
       rva += rf_size;
     }
 
@@ -1998,9 +2009,10 @@ namespace pefile
 
   std::optional<ImageResourceDataEntry> PE::parse_resource_data_entry(uint32_t rva)
   {
-    if (rva + 16 > m_data_size)
+    auto offset = get_offset_from_rva(rva);
+    if (offset + 16 > m_data_size)
       return std::nullopt;
-    return ImageResourceDataEntry::parse(m_data, rva);
+    return ImageResourceDataEntry::parse(m_data, offset);
   }
 
   std::optional<ResourceDirData> PE::parse_resources_directory(
@@ -2014,7 +2026,8 @@ namespace pefile
       return std::nullopt;
     }
 
-    if (rva + 16 > m_data_size)
+    auto dir_offset = get_offset_from_rva(rva);
+    if (dir_offset + 16 > m_data_size)
     {
       add_warning("Invalid resources directory. Can't read directory data at RVA: 0x" + std::to_string(rva));
       return std::nullopt;
@@ -2023,7 +2036,7 @@ namespace pefile
     if (base_rva == 0)
       base_rva = rva;
 
-    auto resource_dir = ImageResourceDirectory::parse(m_data, rva);
+    auto resource_dir = ImageResourceDirectory::parse(m_data, dir_offset);
     uint32_t number_of_entries = resource_dir.NumberOfNamedEntries + resource_dir.NumberOfIdEntries;
 
     if (number_of_entries > MAX_ALLOWED_RESOURCE_ENTRIES)
@@ -2039,10 +2052,11 @@ namespace pefile
 
     for (uint32_t idx = 0; idx < number_of_entries; idx++)
     {
-      if (entry_rva + 8 > m_data_size)
+      auto entry_offset = get_offset_from_rva(entry_rva);
+      if (entry_offset + 8 > m_data_size)
         break;
 
-      auto res = ImageResourceDirectoryEntry::parse(m_data, entry_rva);
+      auto res = ImageResourceDirectoryEntry::parse(m_data, entry_offset);
 
       std::string entry_name;
       uint32_t entry_id = 0;
