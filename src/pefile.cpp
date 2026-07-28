@@ -1998,10 +1998,9 @@ namespace pefile
 
   std::optional<ImageResourceDataEntry> PE::parse_resource_data_entry(uint32_t rva)
   {
-    auto offset = get_offset_from_rva(rva);
-    if (offset + 16 > m_data_size)
+    if (rva + 16 > m_data_size)
       return std::nullopt;
-    return ImageResourceDataEntry::parse(m_data, offset);
+    return ImageResourceDataEntry::parse(m_data, rva);
   }
 
   std::optional<ResourceDirData> PE::parse_resources_directory(
@@ -2015,25 +2014,16 @@ namespace pefile
       return std::nullopt;
     }
 
+    if (rva + 16 > m_data_size)
     {
-      auto offset = get_offset_from_rva(rva);
-      if (offset + 16 > m_data_size)
-      {
-        add_warning("Invalid resources directory. Can't read directory data at offset: 0x" + std::to_string(offset));
-        return std::nullopt;
-      }
+      add_warning("Invalid resources directory. Can't read directory data at RVA: 0x" + std::to_string(rva));
+      return std::nullopt;
     }
 
     if (base_rva == 0)
       base_rva = rva;
 
-    auto file_offset = get_offset_from_rva(rva);
-    if (file_offset + 16 > m_data_size)
-    {
-      add_warning("Invalid resources directory. Can't read directory data at offset: 0x" + std::to_string(file_offset));
-      return std::nullopt;
-    }
-    auto resource_dir = ImageResourceDirectory::parse(m_data, file_offset);
+    auto resource_dir = ImageResourceDirectory::parse(m_data, rva);
     uint32_t number_of_entries = resource_dir.NumberOfNamedEntries + resource_dir.NumberOfIdEntries;
 
     if (number_of_entries > MAX_ALLOWED_RESOURCE_ENTRIES)
@@ -2044,7 +2034,7 @@ namespace pefile
       return std::nullopt;
     }
 
-    uint32_t entry_rva = file_offset + 16;
+    uint32_t entry_rva = rva + 16;
     std::vector<ResourceDirEntryData> dir_entries;
 
     for (uint32_t idx = 0; idx < number_of_entries; idx++)

@@ -262,8 +262,8 @@ namespace pefile
     uint32_t TimeDateStamp = 0;
     uint16_t MajorVersion = 0;
     uint16_t MinorVersion = 0;
-    uint16_t NumberOfNamedEntries = 0;
-    uint16_t NumberOfIdEntries = 0;
+    uint32_t NumberOfNamedEntries = 0;
+    uint32_t NumberOfIdEntries = 0;
 
     static ImageResourceDirectory parse(std::span<const uint8_t> data, size_t offset)
     {
