@@ -2326,9 +2326,7 @@ namespace pefile
     {
       ss << "\nWarnings:\n";
       for (auto& w : m_warnings)
-      {
         ss << "  " << w << "\n";
-      }
     }
 
     return ss.str();
@@ -2338,29 +2336,17 @@ namespace pefile
   {
     std::vector<std::string> result;
     for (auto& res_dir : m_resources)
-    {
       for (auto& entry : res_dir.entries)
-      {
         if (entry.directory)
-        {
           for (auto& sub_entry : entry.directory->entries)
-          {
             if (sub_entry.data_entry && sub_entry.id == static_cast<uint32_t>(ResourceType::STRING))
             {
               auto rva = sub_entry.data_entry->data_rva;
               auto size = sub_entry.data_entry->size;
               if (rva + size <= m_data_size)
-              {
                 if (auto str = get_string_u_at_rva(rva, size / 2); !str.empty())
-                {
                   result.push_back(str);
-                }
-              }
             }
-          }
-        }
-      }
-    }
     return result;
   }
 
@@ -2449,21 +2435,13 @@ namespace pefile
       algo_lower.push_back(static_cast<char>(std::tolower(c)));
 
     if (algo_lower == "md5")
-    {
       return hash_helpers::md5_hex(m_rich_header->clear_data);
-    }
     if (algo_lower == "sha1")
-    {
       return hash_helpers::sha1_hex(m_rich_header->clear_data);
-    }
     if (algo_lower == "sha256")
-    {
       return hash_helpers::sha256_hex(m_rich_header->clear_data);
-    }
     if (algo_lower == "sha512")
-    {
       return hash_helpers::sha512_hex(m_rich_header->clear_data);
-    }
 
     throw std::invalid_argument("Unknown rich header hash algorithm: " + algorithm);
   }
